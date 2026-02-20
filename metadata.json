@@ -1,0 +1,5 @@
+{
+  "name": "GATE Tutor Offline",
+  "description": "Offline-first GATE exam preparation tutor with local AI",
+  "requestFramePermissions": []
+}
