@@ -14,7 +14,7 @@ const llm = new ChatOllama({
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
 
-router.post('/generate-questions', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { topic } = req.body;
 
@@ -82,6 +82,37 @@ router.post('/generate-questions', async (req, res) => {
 
   } catch (error: any) {
     console.error('Agent error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/visualize', async (req, res) => {
+  try {
+    const { concept } = req.body;
+    if (!concept) return res.status(400).json({ error: 'Concept is required' });
+
+    const prompt = `
+      Create a Mermaid.js flowchart to explain the concept: "${concept}".
+      Return ONLY the valid Mermaid code. Do not include markdown backticks.
+      Start with 'graph TD' or 'sequenceDiagram' etc.
+    `;
+
+    const response = await llm.invoke([
+       new SystemMessage("You are a technical diagram generator using Mermaid.js."),
+       new HumanMessage(prompt)
+    ]);
+
+    let mermaidCode = response.content.toString().trim();
+    // Clean up markdown
+    if (mermaidCode.startsWith('```mermaid')) {
+        mermaidCode = mermaidCode.replace(/^```mermaid\s*/, '').replace(/\s*```$/, '');
+    } else if (mermaidCode.startsWith('```')) {
+        mermaidCode = mermaidCode.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    res.json({ mermaid: mermaidCode });
+  } catch (error: any) {
+    console.error('Visualizer error:', error);
     res.status(500).json({ error: error.message });
   }
 });

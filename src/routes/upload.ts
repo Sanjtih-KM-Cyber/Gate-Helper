@@ -2,13 +2,13 @@ import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-// @ts-ignore
-import pdfParse from 'pdf-parse';
-// @ts-ignore
-import pptxParser from 'node-pptx-parser';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+const pptxParser = require('node-pptx-parser');
+const nodewhisper = require('nodejs-whisper');
+
 import Tesseract from 'tesseract.js';
-// @ts-ignore
-import nodewhisper from 'nodejs-whisper';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { OllamaEmbeddings } from '@langchain/ollama';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';

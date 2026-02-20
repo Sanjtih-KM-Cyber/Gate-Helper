@@ -11,7 +11,7 @@ import agentRoutes from './routes/agent.ts';
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 5000;
 
   // Middleware
   app.use(cors());
@@ -23,7 +23,7 @@ async function startServer() {
   const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/gate_tutor';
   
   try {
-    await mongoose.connect(MONGO_URI);
+    await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
     console.log('Connected to MongoDB');
   } catch (err) {
     console.error('MongoDB connection error:', err);
