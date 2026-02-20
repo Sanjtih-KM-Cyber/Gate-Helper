@@ -8,6 +8,10 @@ import { createServer as createViteServer } from 'vite';
 // Routes
 import uploadRoutes from './routes/upload.ts';
 import agentRoutes from './routes/agent.ts';
+import noteRoutes from './routes/notes.ts';
+import mistakeRoutes from './routes/mistakes.ts';
+import rubricRoutes from './routes/rubrics.ts';
+import plannerRoutes from './routes/planner.ts';
 
 async function startServer() {
   const app = express();
@@ -33,6 +37,10 @@ async function startServer() {
   // API Routes
   app.use('/api/upload', uploadRoutes);
   app.use('/api/agent', agentRoutes);
+  app.use('/api/notes', noteRoutes);
+  app.use('/api/mistakes', mistakeRoutes);
+  app.use('/api/rubrics', rubricRoutes);
+  app.use('/api/planner', plannerRoutes);
 
   // Health Check
   app.get('/api/health', (req, res) => {
