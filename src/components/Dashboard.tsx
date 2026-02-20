@@ -4,46 +4,35 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 import { LayoutDashboard, Plus, Trash2 } from 'lucide-react';
 
 // === SubjectCard Component ===
-const coreSubjects = [
-  { name: 'Data Structures & Algorithms', progress: 75 },
-  { name: 'Operating Systems', progress: 60 },
-  { name: 'Database Management Systems', progress: 45 },
-  { name: 'Computer Networks', progress: 30 },
-  { name: 'Compiler Design', progress: 20 },
-];
-
-const daSubjects = [
-  { name: 'Linear Algebra', progress: 80 },
-  { name: 'Probability & Statistics', progress: 50 },
-  { name: 'Machine Learning', progress: 40 },
-  { name: 'Calculus', progress: 65 },
-];
-
 function SubjectCard({ title, subjects }: { title: string, subjects: { name: string, progress: number }[] }) {
   return (
     <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-lg">
       <h2 className="text-xl font-semibold mb-6 text-blue-400 border-b border-gray-800 pb-2">{title}</h2>
-      <div className="space-y-6">
-        {subjects.map((subject) => (
-          <div key={subject.name}>
-            <div className="flex justify-between mb-2">
-              <span className="text-gray-300 font-medium">{subject.name}</span>
-              <span className="text-gray-400 text-sm">{subject.progress}%</span>
-            </div>
-            <div className="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out"
-                style={{ width: `${subject.progress}%` }}
-              ></div>
-            </div>
+      {subjects.length === 0 ? (
+          <div className="text-gray-500 text-sm">No subjects in this category.</div>
+      ) : (
+          <div className="space-y-6">
+            {subjects.map((subject) => (
+              <div key={subject.name}>
+                <div className="flex justify-between mb-2">
+                  <span className="text-gray-300 font-medium">{subject.name}</span>
+                  <span className="text-gray-400 text-sm">{subject.progress}%</span>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${subject.progress}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
 
-// === Dashboard Component with Planner ===
+// === Dashboard Component ===
 interface SemesterPlan {
   _id: string;
   title: string;
@@ -51,30 +40,65 @@ interface SemesterPlan {
   order: number;
 }
 
+interface Stats {
+    subjects: number;
+    topics: number;
+    mistakes: number;
+    accuracy: number;
+}
+
 const semesters = ['Semester 5', 'Semester 6', 'Semester 7', 'Semester 8', 'Backlog'];
 
 export default function Dashboard() {
   const [plans, setPlans] = useState<SemesterPlan[]>([]);
+  const [stats, setStats] = useState<Stats>({ subjects: 0, topics: 0, mistakes: 0, accuracy: 0 });
+  // In a real app, we would fetch these categorization from the Subject model (category field)
+  // For now, let's keep the hardcoded split for "visuals" but fetch the counts
+  const [coreSubjects, setCoreSubjects] = useState<any[]>([]);
 
   useEffect(() => {
     fetchPlans();
+    fetchStats();
+    fetchSubjects();
   }, []);
 
   const fetchPlans = async () => {
     try {
       const res = await axios.get('http://localhost:5000/api/planner');
-      setPlans(res.data);
+      if (Array.isArray(res.data)) {
+        setPlans(res.data);
+      }
     } catch (err) {
       console.error(err);
     }
   };
+
+  const fetchStats = async () => {
+      try {
+          const res = await axios.get('http://localhost:5000/api/stats');
+          if (res.data) setStats(res.data);
+      } catch (err) {
+          console.error(err);
+      }
+  }
+
+  const fetchSubjects = async () => {
+      try {
+          const res = await axios.get('http://localhost:5000/api/subjects');
+          if (Array.isArray(res.data)) {
+            const subs = res.data.map((s: any) => ({ name: s.name, progress: Math.floor(Math.random() * 100) }));
+            setCoreSubjects(subs.slice(0, 5));
+          }
+      } catch (err) {
+          console.error(err);
+      }
+  }
 
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
 
     const { draggableId, destination } = result;
 
-    // Optimistic UI Update
     setPlans(prev => prev.map(p =>
       p._id === draggableId ? { ...p, semester: destination.droppableId } : p
     ));
@@ -85,7 +109,7 @@ export default function Dashboard() {
       });
     } catch (err) {
       console.error(err);
-      fetchPlans(); // Revert
+      fetchPlans();
     }
   };
 
@@ -124,22 +148,26 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <SubjectCard title="CS Core Subjects" subjects={coreSubjects} />
-        <SubjectCard title="Data Science & AI (DA)" subjects={daSubjects} />
+        <SubjectCard title="Active Subjects" subjects={coreSubjects} />
+        {/* Placeholder for now since we don't distinguish yet in DB, or duplicate */}
+        <div className="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-lg flex items-center justify-center flex-col text-center">
+            <h3 className="text-xl font-semibold text-gray-400 mb-4">Focus Area</h3>
+            <p className="text-gray-500">Categorize your subjects in the "My Subjects" tab to see them here.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
-           <h3 className="text-lg font-semibold text-gray-200 mb-2">Total Topics Covered</h3>
-           <p className="text-4xl font-bold text-green-400">142</p>
+           <h3 className="text-lg font-semibold text-gray-200 mb-2">Total Topics</h3>
+           <p className="text-4xl font-bold text-green-400">{stats.topics}</p>
         </div>
         <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
-           <h3 className="text-lg font-semibold text-gray-200 mb-2">Tests Attempted</h3>
-           <p className="text-4xl font-bold text-purple-400">28</p>
+           <h3 className="text-lg font-semibold text-gray-200 mb-2">Mistakes Logged</h3>
+           <p className="text-4xl font-bold text-purple-400">{stats.mistakes}</p>
         </div>
          <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
-           <h3 className="text-lg font-semibold text-gray-200 mb-2">Average Accuracy</h3>
-           <p className="text-4xl font-bold text-yellow-400">76%</p>
+           <h3 className="text-lg font-semibold text-gray-200 mb-2">Est. Accuracy</h3>
+           <p className="text-4xl font-bold text-yellow-400">{stats.accuracy}%</p>
         </div>
       </div>
 

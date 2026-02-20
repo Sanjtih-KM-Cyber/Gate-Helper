@@ -2,17 +2,31 @@ import express from 'express';
 import { ChatOllama } from '@langchain/ollama';
 import { DuckDuckGoSearch } from '@langchain/community/tools/duckduckgo_search';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { Settings } from '../models/Settings.ts';
 
 const router = express.Router();
 
 // Initialize Local Ollama Model
 const llm = new ChatOllama({
-  model: 'llama3.2', // Ensure this model is pulled in Ollama
+  model: 'llama3.2',
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
 });
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
+
+// Helper to get system prompt
+async function getSystemPrompt(baseInstruction: string) {
+  try {
+    const settings = await Settings.findOne();
+    if (settings && settings.aiPersona) {
+      return `${settings.aiPersona}\n\n${baseInstruction}`;
+    }
+  } catch (e) {
+    console.error("Failed to fetch settings", e);
+  }
+  return `You are an expert GATE exam tutor.\n\n${baseInstruction}`;
+}
 
 router.post('/', async (req, res) => {
   try {
@@ -24,7 +38,6 @@ router.post('/', async (req, res) => {
 
     console.log(`Searching for GATE questions on: ${topic}`);
 
-    // 1. Search DuckDuckGo
     let searchResults = '';
     try {
       searchResults = await searchTool.invoke(`GATE previous year questions for ${topic}`);
@@ -33,10 +46,10 @@ router.post('/', async (req, res) => {
       searchResults = 'Search unavailable. Generating questions based on internal knowledge.';
     }
 
-    // 2. Feed to Ollama
+    const baseInstruction = "You generate practice questions for GATE exams.";
+    const systemPrompt = await getSystemPrompt(baseInstruction);
+
     const prompt = `
-      You are an expert GATE exam tutor.
-      
       Context from web search:
       ${searchResults}
       
@@ -55,13 +68,11 @@ router.post('/', async (req, res) => {
     `;
 
     const response = await llm.invoke([
-      new SystemMessage("You are a helpful AI assistant that outputs strict JSON."),
+      new SystemMessage(systemPrompt),
       new HumanMessage(prompt),
     ]);
 
-    // Clean up response content to ensure valid JSON
     let cleanContent = response.content.toString().trim();
-    // Remove markdown code blocks if present
     if (cleanContent.startsWith('```json')) {
         cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     } else if (cleanContent.startsWith('```')) {
@@ -74,7 +85,6 @@ router.post('/', async (req, res) => {
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
       console.log('Raw Content:', cleanContent);
-      // Fallback or retry logic could go here
       return res.status(500).json({ error: 'Failed to parse AI response', raw: cleanContent });
     }
 
@@ -91,6 +101,8 @@ router.post('/visualize', async (req, res) => {
     const { concept } = req.body;
     if (!concept) return res.status(400).json({ error: 'Concept is required' });
 
+    const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.");
+
     const prompt = `
       Create a Mermaid.js flowchart to explain the concept: "${concept}".
       Return ONLY the valid Mermaid code. Do not include markdown backticks.
@@ -98,12 +110,11 @@ router.post('/visualize', async (req, res) => {
     `;
 
     const response = await llm.invoke([
-       new SystemMessage("You are a technical diagram generator using Mermaid.js."),
+       new SystemMessage(systemPrompt),
        new HumanMessage(prompt)
     ]);
 
     let mermaidCode = response.content.toString().trim();
-    // Clean up markdown
     if (mermaidCode.startsWith('```mermaid')) {
         mermaidCode = mermaidCode.replace(/^```mermaid\s*/, '').replace(/\s*```$/, '');
     } else if (mermaidCode.startsWith('```')) {
@@ -113,6 +124,32 @@ router.post('/visualize', async (req, res) => {
     res.json({ mermaid: mermaidCode });
   } catch (error: any) {
     console.error('Visualizer error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// New Endpoint: Explain Topic
+router.post('/explain', async (req, res) => {
+  try {
+    const { topic } = req.body;
+    if (!topic) return res.status(400).json({ error: 'Topic is required' });
+
+    const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.");
+
+    const prompt = `
+      Explain the concept "${topic}" in detail.
+      Use examples and keep the tone consistent with your persona.
+      Structure the response with Markdown headers and bullet points.
+    `;
+
+    const response = await llm.invoke([
+       new SystemMessage(systemPrompt),
+       new HumanMessage(prompt)
+    ]);
+
+    res.json({ explanation: response.content });
+  } catch (error: any) {
+    console.error('Explanation error:', error);
     res.status(500).json({ error: error.message });
   }
 });

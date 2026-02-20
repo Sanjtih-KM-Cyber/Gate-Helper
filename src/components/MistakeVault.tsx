@@ -36,7 +36,6 @@ export default function MistakeVault() {
         userAnswer: mistake.userAnswer,
         correctAnswer: mistake.correctAnswer
       });
-      // In a real app, update DB with explanation. For now, show in UI or update local state.
       setMistakes(prev => prev.map(m => m._id === id ? { ...m, explanation: res.data.explanation } : m));
     } catch (err) {
       console.error(err);
