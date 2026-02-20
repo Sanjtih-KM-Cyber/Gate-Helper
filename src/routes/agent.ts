@@ -3,6 +3,7 @@ import { ChatOllama } from '@langchain/ollama';
 import { DuckDuckGoSearch } from '@langchain/community/tools/duckduckgo_search';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Settings } from '../models/Settings.ts';
+import { getRelevantContext } from '../utils/vectorStore.ts';
 
 const router = express.Router();
 
@@ -46,15 +47,23 @@ router.post('/', async (req, res) => {
       searchResults = 'Search unavailable. Generating questions based on internal knowledge.';
     }
 
+    // Retrieve local context from vector store
+    const localContext = await getRelevantContext(topic);
+    console.log(`Retrieved local context length: ${localContext.length}`);
+
     const baseInstruction = "You generate practice questions for GATE exams.";
     const systemPrompt = await getSystemPrompt(baseInstruction);
 
     const prompt = `
-      Context from web search:
+      Context from Uploaded Notes/Books:
+      ${localContext || "No specific notes found. Rely on web search and general knowledge."}
+
+      Context from Web Search:
       ${searchResults}
       
       Task:
       Generate 4 practice questions for the topic "${topic}" based on the context and your knowledge of the GATE syllabus.
+      Prioritize information from "Uploaded Notes" if available.
       Categorize them exactly into: 'Easy', 'Medium', 'Hard', 'Topper Level'.
       
       Format the output as a strictly valid JSON array of objects with keys:
@@ -101,10 +110,17 @@ router.post('/visualize', async (req, res) => {
     const { concept } = req.body;
     if (!concept) return res.status(400).json({ error: 'Concept is required' });
 
+    // Retrieve local context
+    const localContext = await getRelevantContext(concept);
+
     const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.");
 
     const prompt = `
+      Context from Notes:
+      ${localContext || "No specific notes found."}
+
       Create a Mermaid.js flowchart to explain the concept: "${concept}".
+      Use the context to add specific details if available.
       Return ONLY the valid Mermaid code. Do not include markdown backticks.
       Start with 'graph TD' or 'sequenceDiagram' etc.
     `;
@@ -134,10 +150,17 @@ router.post('/explain', async (req, res) => {
     const { topic } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
+    // Retrieve local context
+    const localContext = await getRelevantContext(topic);
+
     const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.");
 
     const prompt = `
+      Context from Notes:
+      ${localContext || "No specific notes found."}
+
       Explain the concept "${topic}" in detail.
+      Reference the "Context from Notes" if relevant to provide a tailored explanation.
       Use examples and keep the tone consistent with your persona.
       Structure the response with Markdown headers and bullet points.
     `;
