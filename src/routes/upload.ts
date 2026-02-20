@@ -10,17 +10,11 @@ const nodewhisper = require('nodejs-whisper');
 
 import Tesseract from 'tesseract.js';
 import { YoutubeTranscript } from 'youtube-transcript';
-import { OllamaEmbeddings } from '@langchain/ollama';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { addDocumentsToStore } from '../utils/vectorStore.ts';
 
 const router = express.Router();
 const upload = multer({ dest: 'uploads/' });
-
-// Initialize Ollama Embeddings (Local)
-const embeddings = new OllamaEmbeddings({
-  model: 'nomic-embed-text', // Ensure this model is pulled in Ollama
-  baseUrl: 'http://localhost:11434',
-});
 
 // Helper function to process text for embeddings
 async function processTextForEmbeddings(text: string, metadata: any) {
@@ -31,15 +25,13 @@ async function processTextForEmbeddings(text: string, metadata: any) {
   
   const docs = await splitter.createDocuments([text], [metadata]);
   
-  // In a real app, you would store these embeddings in a vector store (e.g., Chroma, Faiss).
-  // For this demo, we'll just generate them to show the integration.
   try {
-    const vectors = await embeddings.embedDocuments(docs.map(d => d.pageContent));
-    console.log(`Generated ${vectors.length} vectors for ${metadata.source}`);
-    return { success: true, chunks: docs.length, vectorsGenerated: vectors.length };
+    // Add documents to the persistent vector store
+    await addDocumentsToStore(docs);
+    return { success: true, chunks: docs.length, message: "Embeddings stored successfully" };
   } catch (error) {
-    console.error('Error generating embeddings:', error);
-    return { success: false, error: 'Ollama embedding failed. Ensure Ollama is running.' };
+    console.error('Error generating/storing embeddings:', error);
+    return { success: false, error: 'Failed to store embeddings. Ensure Ollama is running.' };
   }
 }
 
@@ -85,11 +77,9 @@ router.post('/', upload.single('file'), async (req, res) => {
         extractedText = text;
       } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
         // Audio (Whisper)
-        // Note: nodejs-whisper requires local setup. This might fail in some envs.
         try {
             const result: any = await (nodewhisper as any)(filePath, {
                 modelName: 'base.en', // Ensure model is available
-                // whisperOptions
             });
             extractedText = result.transcription || JSON.stringify(result);
         } catch (e) {

@@ -2,6 +2,8 @@ import express from 'express';
 import { Rubric } from '../models/Rubric.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { getRelevantContext } from '../utils/vectorStore.ts';
+
 const router = express.Router();
 const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.7 });
 router.get('/', async (req, res) => { try { const rubrics = await Rubric.find().sort({ marks: 1 }); res.json(rubrics); } catch (err) { res.status(500).json({ error: (err as any).message }); } });
@@ -14,18 +16,19 @@ router.post('/generate-answer', async (req, res) => {
       return res.status(404).json({ error: 'No rubric found for marks.' });
     }
 
-    // In a full RAG implementation, we would query the vector store here:
-    // const contextDocs = await vectorStore.similaritySearch(topic, 3);
-    // const contextText = contextDocs.map(d => d.pageContent).join('\n');
-    console.log(`[RAG] Retrieving context for topic: "${topic}"... (Simulation)`);
+    console.log(`[RAG] Retrieving context for topic: "${topic}"...`);
+    const context = await getRelevantContext(topic, 3);
 
     const prompt = `Topic: ${topic}
 Marks: ${marks}
 Rubric Description: ${rubric.description}
 Rubric Requirements: ${rubric.requirements.join(', ')}
 
+Context from Course Material:
+${context || "No specific notes found. Rely on general academic knowledge."}
+
 Task: Write a perfect answer for this topic strictly following the rubric constraints (word count, structure, depth).
-Base your answer on general academic knowledge as if you had access to standard textbooks.`;
+Base your answer primarily on the provided Context from Course Material if available.`;
 
     const response = await llm.invoke([
       new SystemMessage('You are an expert academic tutor and grader. Write high-quality, precise answers tailored to exam rubrics.'),
