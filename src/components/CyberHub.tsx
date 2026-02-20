@@ -66,7 +66,6 @@ export default function CyberHub() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-gray-950 overflow-hidden">
-      {/* Sidebar List */}
       <div className="w-64 bg-gray-900 border-r border-gray-800 p-4 flex flex-col">
         <button
           onClick={() => { setActiveNote(null); setEditMode(true); setTitle(''); setContent(''); }}
@@ -88,7 +87,6 @@ export default function CyberHub() {
         </div>
       </div>
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {activeNote || editMode ? (
           <>

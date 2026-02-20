@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { Book, FileText, Settings, PenTool, Save, Trash2 } from 'lucide-react';
+import { Book, FileText, Settings, PenTool, Save, Trash2, ArrowRight } from 'lucide-react';
 
 interface Rubric {
   _id?: string;
@@ -90,11 +91,14 @@ export default function CollegePrepSpace() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
             <h2 className="text-xl font-semibold text-white mb-4">Syllabus & Materials</h2>
-            <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:border-blue-500 hover:text-blue-400 transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:border-blue-500 hover:text-blue-400 transition-colors">
               <FileText size={48} className="mb-2" />
-              <p>Drag & Drop Syllabus PDF here</p>
+              <p className="mb-4 text-center">Manage your course materials in the RAG Vault to power the AI Answer Generator.</p>
+              <Link to="/vault" className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-md transition-colors">
+                <span>Go to RAG Vault</span>
+                <ArrowRight size={16} />
+              </Link>
             </div>
-            {/* List of uploaded files would go here */}
           </div>
           <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
              <h2 className="text-xl font-semibold text-white mb-4">Topic Roadmap</h2>
@@ -127,7 +131,7 @@ export default function CollegePrepSpace() {
                   onChange={e => setNewRubric({...newRubric, wordCount: parseInt(e.target.value)})}
                 />
                 <textarea
-                   placeholder="Description & Requirements (e.g., 'Include definition + 2 examples')"
+                   placeholder="Description & Requirements"
                    className="w-full bg-gray-800 border border-gray-700 rounded p-3 text-white h-32"
                    value={newRubric.description}
                    onChange={e => setNewRubric({...newRubric, description: e.target.value})}

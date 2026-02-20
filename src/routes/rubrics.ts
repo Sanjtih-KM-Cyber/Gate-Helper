@@ -2,59 +2,33 @@ import express from 'express';
 import { Rubric } from '../models/Rubric.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-
 const router = express.Router();
-const llm = new ChatOllama({
-  model: 'llama3.2', // Ensure model is pulled
-  baseUrl: 'http://localhost:11434',
-  temperature: 0.7,
-});
-
-router.get('/', async (req, res) => {
-  try {
-    const rubrics = await Rubric.find().sort({ marks: 1 });
-    res.json(rubrics);
-  } catch (err) {
-    res.status(500).json({ error: (err as any).message });
-  }
-});
-
-router.post('/', async (req, res) => {
-  try {
-    const rubric = new Rubric(req.body);
-    await rubric.save();
-    res.json(rubric);
-  } catch (err) {
-    res.status(400).json({ error: (err as any).message });
-  }
-});
-
-// Generate Answer based on Marks/Rubric
+const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.7 });
+router.get('/', async (req, res) => { try { const rubrics = await Rubric.find().sort({ marks: 1 }); res.json(rubrics); } catch (err) { res.status(500).json({ error: (err as any).message }); } });
+router.post('/', async (req, res) => { try { const rubric = new Rubric(req.body); await rubric.save(); res.json(rubric); } catch (err) { res.status(400).json({ error: (err as any).message }); } });
 router.post('/generate-answer', async (req, res) => {
   const { topic, marks } = req.body;
-
   try {
-    // 1. Fetch rubric for these marks
     const rubric = await Rubric.findOne({ marks: parseInt(marks) });
     if (!rubric) {
-      return res.status(404).json({ error: `No rubric found for ${marks} marks. Please define it in settings.` });
+      return res.status(404).json({ error: 'No rubric found for marks.' });
     }
 
-    const prompt = `
-      You are an expert college tutor.
-      Topic: "${topic}"
-      Marks: ${marks}
+    // In a full RAG implementation, we would query the vector store here:
+    // const contextDocs = await vectorStore.similaritySearch(topic, 3);
+    // const contextText = contextDocs.map(d => d.pageContent).join('\n');
+    console.log(`[RAG] Retrieving context for topic: "${topic}"... (Simulation)`);
 
-      RUBRIC REQUIREMENTS:
-      - Length: Approximately ${rubric.wordCount || 'variable'} words.
-      - Description: ${rubric.description}
-      - Specific Requirements: ${rubric.requirements.join(', ')}
+    const prompt = `Topic: ${topic}
+Marks: ${marks}
+Rubric Description: ${rubric.description}
+Rubric Requirements: ${rubric.requirements.join(', ')}
 
-      Task: Write a perfect answer for this topic that strictly follows the rubric above.
-    `;
+Task: Write a perfect answer for this topic strictly following the rubric constraints (word count, structure, depth).
+Base your answer on general academic knowledge as if you had access to standard textbooks.`;
 
     const response = await llm.invoke([
-      new SystemMessage("You are a strict academic grader."),
+      new SystemMessage('You are an expert academic tutor and grader. Write high-quality, precise answers tailored to exam rubrics.'),
       new HumanMessage(prompt)
     ]);
 
@@ -64,5 +38,4 @@ router.post('/generate-answer', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate answer' });
   }
 });
-
 export default router;

@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Database, BrainCircuit, Activity, GraduationCap, Shield, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Database, BrainCircuit, Activity, GraduationCap, Shield, AlertTriangle, Settings, Book } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Vault from './components/Vault';
 import TestEngine from './components/TestEngine';
@@ -7,17 +7,23 @@ import Visualizer from './components/Visualizer';
 import CollegePrepSpace from './components/CollegePrepSpace';
 import CyberHub from './components/CyberHub';
 import MistakeVault from './components/MistakeVault';
+import SubjectExplorer from './components/SubjectExplorer';
+import SubjectDetail from './components/SubjectDetail';
+import TopicStudio from './components/TopicStudio';
+import SettingsPage from './components/Settings';
 
 function Sidebar() {
   const location = useLocation();
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/subjects', label: 'My Subjects', icon: Book },
     { path: '/college-prep', label: 'College Prep', icon: GraduationCap },
     { path: '/cyber-hub', label: 'Cyber Hub', icon: Shield },
     { path: '/mistake-vault', label: 'Mistake Vault', icon: AlertTriangle },
     { path: '/vault', label: 'RAG Vault', icon: Database },
     { path: '/test-engine', label: 'Test Engine', icon: BrainCircuit },
     { path: '/visualizer', label: 'Visualizer', icon: Activity },
+    { path: '/settings', label: 'AI Settings', icon: Settings },
   ];
 
   return (
@@ -26,7 +32,9 @@ function Sidebar() {
       <nav className="flex-1 space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          // Partial match for nested routes (e.g. /subject/123 should highlight Subjects)
+          const isActive = location.pathname === item.path || (item.path === '/subjects' && location.pathname.startsWith('/subject'));
+
           return (
             <Link
               key={item.path}
@@ -44,7 +52,7 @@ function Sidebar() {
         })}
       </nav>
       <div className="mt-8 pt-4 border-t border-gray-800 text-xs text-gray-600 text-center font-mono">
-        v2.0 • Offline AI
+        v3.0 • Subject Flow
       </div>
     </div>
   );
@@ -58,12 +66,16 @@ function App() {
         <main className="flex-1 ml-64 p-8 overflow-y-auto h-screen scrollbar-hide">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/subjects" element={<SubjectExplorer />} />
+            <Route path="/subject/:id" element={<SubjectDetail />} />
+            <Route path="/subject/:subjectId/topic/:topic" element={<TopicStudio />} />
             <Route path="/college-prep" element={<CollegePrepSpace />} />
             <Route path="/cyber-hub" element={<CyberHub />} />
             <Route path="/mistake-vault" element={<MistakeVault />} />
             <Route path="/vault" element={<Vault />} />
             <Route path="/test-engine" element={<TestEngine />} />
             <Route path="/visualizer" element={<Visualizer />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>
