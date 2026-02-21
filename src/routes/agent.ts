@@ -7,12 +7,11 @@ import { getRelevantContext } from '../utils/vectorStore.ts';
 
 const router = express.Router();
 
-// Initialize Local Ollama Model with Timeout Handling
+// Initialize Local Ollama Model
 const llm = new ChatOllama({
   model: 'llama3.2',
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
-  // robust timeout/retry logic is handled via langchain invoke options or custom wrapper
 });
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
@@ -29,15 +28,35 @@ async function getSystemPrompt(baseInstruction: string) {
   return `You are an expert GATE exam tutor.\n\n${baseInstruction}`;
 }
 
+// Helper: Robust JSON Extractor
+function extractJSON(text: string): any {
+  let cleanContent = text.trim();
+  // Strip markdown code blocks
+  if (cleanContent.startsWith('```json')) {
+      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  } else if (cleanContent.startsWith('```')) {
+      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+
+  // Attempt to fix common trailing comma issue before closing brace/bracket
+  cleanContent = cleanContent.replace(/,\s*([\]}])/g, '$1');
+
+  try {
+      return JSON.parse(cleanContent);
+  } catch (e) {
+      console.error("JSON Parse Failed on content:", cleanContent);
+      throw e;
+  }
+}
+
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
   try {
     const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'] } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
-    console.log(`Generating ${count} questions for: ${topic} (Types: ${types.join(', ')})`);
+    console.log(`Generating ${count} questions for: ${topic}`);
 
-    // Context Retrieval
     const localContext = await getRelevantContext(topic);
     let searchResults = '';
     try {
@@ -80,16 +99,12 @@ router.post('/questions', async (req, res) => {
       new HumanMessage(prompt)
     ]);
 
-    let cleanContent = response.content.toString().trim();
-    if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-
     let questions;
     try {
-      questions = JSON.parse(cleanContent);
+      questions = extractJSON(response.content.toString());
+      if (!Array.isArray(questions)) questions = [];
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
-      // fallback to empty array instead of crashing
       questions = [];
     }
 
@@ -134,7 +149,6 @@ router.post('/visualize', async (req, res) => {
     if (mermaidCode.startsWith('```mermaid')) mermaidCode = mermaidCode.replace(/^```mermaid\s*/, '').replace(/\s*```$/, '');
     else if (mermaidCode.startsWith('```')) mermaidCode = mermaidCode.replace(/^```\s*/, '').replace(/\s*```$/, '');
 
-    // Validate simple syntax check
     if (mermaidCode.includes('->>')) {
         mermaidCode = mermaidCode.replace(/->>/g, '-->');
     }
@@ -150,7 +164,7 @@ router.post('/visualize', async (req, res) => {
 // Chat / Explain
 router.post('/chat', async (req, res) => {
     try {
-      const { message, topic, mode = 'standard' } = req.body; // mode: 'standard' | 'socratic'
+      const { message, topic, mode = 'standard' } = req.body;
       if (!message) return res.status(400).json({ error: 'Message is required' });
 
       const localContext = await getRelevantContext(`${topic} ${message}`);
@@ -166,7 +180,8 @@ router.post('/chat', async (req, res) => {
           systemInstruction = "You are a Socratic tutor. DO NOT give the answer directly. Instead, ask guiding questions to help the student derive the answer themselves. Give hints if they are stuck.";
       }
 
-      const systemPrompt = await getSystemPrompt(systemInstruction);
+      // Fetch settings and apply to system prompt
+      const finalSystemPrompt = await getSystemPrompt(systemInstruction);
 
       const prompt = `
         Current Topic: ${topic}
@@ -181,7 +196,7 @@ router.post('/chat', async (req, res) => {
       `;
 
       const response = await llm.invoke([
-         new SystemMessage(systemPrompt),
+         new SystemMessage(finalSystemPrompt),
          new HumanMessage(prompt)
       ]);
 
@@ -190,14 +205,6 @@ router.post('/chat', async (req, res) => {
       console.error('Chat error:', error);
       res.status(500).json({ error: 'Chat service unavailable.' });
     }
-  });
-
-  // Keep the old POST / root for backward compatibility if needed, but alias to questions
-  router.post('/', async (req, res) => {
-      // Forward to /questions with defaults
-      req.body.count = 4;
-      req.body.types = ['MCQ'];
-      return res.redirect(307, '/api/agent/questions');
   });
 
 router.post('/explain', async (req, res) => {
@@ -235,6 +242,13 @@ router.post('/explain', async (req, res) => {
     console.error('Explanation error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+router.post('/', async (req, res) => {
+      // Forward to /questions with defaults
+      req.body.count = 4;
+      req.body.types = ['MCQ'];
+      return res.redirect(307, '/api/agent/questions');
 });
 
 export default router;

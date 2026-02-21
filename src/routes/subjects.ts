@@ -139,27 +139,36 @@ router.post('/gate-prep', async (req, res) => {
 
     const query = `official GATE computer science syllabus for ${name} topics units`;
     let combinedContent = '';
+
+    // Fix 1: Wrap duck-duck-scrape in try/catch
     try {
         const searchResults = await search(query, { safeSearch: 0 });
-        const topResults = searchResults.results.slice(0, 2);
-        for (const result of topResults) {
-            try {
-                const page = await axios.get(result.url, { timeout: 5000 });
-                const $ = cheerio.load(page.data);
-                $('script, style, nav, footer, header').remove();
-                const text = $('body').text().replace(/\s+/g, ' ').trim();
-                combinedContent += `\n--- Source: ${result.url} ---\n${text.substring(0, 5000)}`;
-            } catch (scrapeErr) {
-                console.error(`Failed to scrape ${result.url}`, scrapeErr);
+        if (searchResults.results && searchResults.results.length > 0) {
+            const topResults = searchResults.results.slice(0, 2);
+            for (const result of topResults) {
+                try {
+                    const page = await axios.get(result.url, { timeout: 5000 });
+                    const $ = cheerio.load(page.data);
+                    $('script, style, nav, footer, header').remove();
+                    const text = $('body').text().replace(/\s+/g, ' ').trim();
+                    combinedContent += `\n--- Source: ${result.url} ---\n${text.substring(0, 5000)}`;
+                } catch (scrapeErr) {
+                    console.error(`Failed to scrape ${result.url}`, scrapeErr);
+                }
             }
         }
     } catch (searchErr) {
-        console.error("Search failed", searchErr);
+        console.warn("Search failed or rate limited. Falling back to internal knowledge.", searchErr);
+        combinedContent = ""; // Explicitly clear so AI knows to use internal knowledge
     }
 
-    if (!combinedContent) combinedContent = "Search failed. Use internal knowledge.";
+    if (!combinedContent) combinedContent = "Search failed. Use internal knowledge to generate the syllabus.";
 
-    const systemPrompt = `You are an expert GATE Exam Tutor.`;
+    const systemPrompt = `You are an expert GATE Exam Tutor.
+    IMPORTANT:
+    Every topic MUST have a status of exactly 'Not Started'.
+    Every topic MUST have a confidence of exactly 'Red'.`;
+
     const userPrompt = `
       Subject: ${name}
       Context: ${combinedContent}
@@ -181,6 +190,20 @@ router.post('/gate-prep', async (req, res) => {
     let syllabusData: { syllabus: IUnit[] };
     try {
       syllabusData = JSON.parse(cleanContent);
+
+      // Fix 2b: Sanitize Enums
+      if (syllabusData.syllabus && Array.isArray(syllabusData.syllabus)) {
+          syllabusData.syllabus.forEach(unit => {
+              if (unit.topics && Array.isArray(unit.topics)) {
+                  unit.topics.forEach(topic => {
+                      // Force enum values to prevent Mongoose validation errors
+                      topic.status = "Not Started";
+                      topic.confidence = "Red";
+                  });
+              }
+          });
+      }
+
     } catch (e) {
       console.error('Failed to parse AI syllabus:', e);
       syllabusData = { syllabus: [] };
