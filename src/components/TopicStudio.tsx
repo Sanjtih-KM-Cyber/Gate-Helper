@@ -5,7 +5,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, MessageSquare, AlertTriangle, Code, BrainCircuit,
   Send, CheckCircle, HelpCircle, Activity,
-  Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2, Download, Bookmark, Globe
+  Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2, Download, Bookmark, Globe, Settings as SettingsIcon, Filter
 } from 'lucide-react';
 import { useGlobalTask, Question } from '../context/GlobalTaskManager';
 
@@ -187,6 +187,12 @@ export default function TopicStudio() {
   const [fetchingPYQ, setFetchingPYQ] = useState(false);
   const [realPYQs, setRealPYQs] = useState<any[]>([]);
 
+  // Exam Configuration State
+  const [examConfigOpen, setExamConfigOpen] = useState(false);
+  const [questionCount, setQuestionCount] = useState(5);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<string[]>(['Medium', 'Hard']);
+
   const { generatedQuestions, startQuestionGeneration, isGenerating } = useGlobalTask();
   const topicQuestions = generatedQuestions[decodedTopic] || [];
 
@@ -214,6 +220,15 @@ export default function TopicStudio() {
         localStorage.setItem(`chat_${subjectId}_${decodedTopic}`, JSON.stringify(messages));
     }
   }, [messages, subjectId, decodedTopic]);
+
+  // Initialize Exam Defaults based on PrepType
+  useEffect(() => {
+      if (prepType === 'College') {
+          setSelectedTypes(['2-mark', '5-mark']);
+      } else {
+          setSelectedTypes(['MCQ', 'NAT']);
+      }
+  }, [prepType]);
 
   const fetchTopicDetails = async () => {
     try {
@@ -304,8 +319,16 @@ export default function TopicStudio() {
   };
 
   const handleGenerateQuestions = () => {
-    // Pass prepType dynamically
-    startQuestionGeneration(decodedTopic, 5, [], prepType);
+    startQuestionGeneration(decodedTopic, questionCount, selectedTypes, prepType);
+    setExamConfigOpen(false);
+  };
+
+  const toggleSelection = (list: string[], item: string, setList: React.Dispatch<React.SetStateAction<string[]>>) => {
+      if (list.includes(item)) {
+          setList(list.filter(i => i !== item));
+      } else {
+          setList([...list, item]);
+      }
   };
 
   const handleFetchPYQ = async () => {
@@ -336,13 +359,11 @@ export default function TopicStudio() {
               difficulty: questionData.difficulty || 'Unknown'
           });
           setSavedQuestionIds(prev => [...prev, qId]);
-          // Could add toast here
       } catch (err) {
           console.error("Save Failed", err);
       }
   };
 
-  // Helper to render question card (used for both generated and PYQ)
   const renderQuestionCard = (q: any, idx: number, isReal: boolean) => (
     <div key={idx} className={`bg-gray-800 border ${isReal ? 'border-green-600/50' : 'border-gray-700'} rounded-xl p-6 shadow-sm mb-4 relative`}>
         {isReal && (
@@ -479,7 +500,7 @@ export default function TopicStudio() {
               {activeTab === 'chat' && (
                  <div className="flex flex-col h-full">
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700">
-                       {/* Real PYQs (if any) */}
+                       {/* Real PYQs */}
                        {realPYQs.length > 0 && (
                            <div className="mb-6 border-b border-gray-800 pb-4">
                                <h4 className="text-xs font-bold text-green-500 uppercase mb-4 flex items-center"><Globe size={14} className="mr-2"/> Real GATE PYQs</h4>
@@ -539,14 +560,80 @@ export default function TopicStudio() {
                  <div className="p-6 overflow-y-auto h-full scrollbar-thin scrollbar-thumb-gray-700">
                     <div className="flex justify-between items-center mb-6">
                        <h2 className="text-xl font-bold text-white">Practice Questions</h2>
-                       <button onClick={handleGenerateQuestions} disabled={isGenerating} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20">{isGenerating ? <Loader2 className="animate-spin" size={18}/> : <BrainCircuit size={18}/>}<span>{isGenerating ? 'Generating...' : 'Generate New Set'}</span></button>
+                       <button onClick={() => setExamConfigOpen(!examConfigOpen)} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 hover:text-white transition-colors"><SettingsIcon size={20}/></button>
                     </div>
+
+                    {/* Exam Config Panel */}
+                    {examConfigOpen && (
+                        <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 mb-6 animate-in slide-in-from-top-2">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Count</label>
+                                    <div className="flex items-center space-x-2">
+                                        <button onClick={() => setQuestionCount(Math.max(1, questionCount - 1))} className="p-1 bg-gray-700 rounded hover:bg-gray-600 text-white">-</button>
+                                        <span className="text-white font-mono w-8 text-center">{questionCount}</span>
+                                        <button onClick={() => setQuestionCount(Math.min(15, questionCount + 1))} className="p-1 bg-gray-700 rounded hover:bg-gray-600 text-white">+</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Types</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(prepType === 'College' ? ['2-mark', '5-mark', '8-mark', 'Descriptive', 'Numerical'] : ['MCQ', 'MSQ', 'NAT']).map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => toggleSelection(selectedTypes, t, setSelectedTypes)}
+                                                className={`text-xs px-2 py-1 rounded border transition-colors ${selectedTypes.includes(t) ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-600 text-gray-400 hover:border-gray-500'}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Difficulty</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {['Easy', 'Medium', 'Hard', 'Topper'].map(d => (
+                                            <button
+                                                key={d}
+                                                onClick={() => toggleSelection(selectedDifficulty, d, setSelectedDifficulty)}
+                                                className={`text-xs px-2 py-1 rounded border transition-colors ${selectedDifficulty.includes(d) ? 'bg-purple-600 border-purple-500 text-white' : 'border-gray-600 text-gray-400 hover:border-gray-500'}`}
+                                            >
+                                                {d}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-4 flex justify-end">
+                                <button
+                                    onClick={handleGenerateQuestions}
+                                    disabled={isGenerating}
+                                    className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20"
+                                >
+                                    {isGenerating ? <Loader2 className="animate-spin" size={18}/> : <BrainCircuit size={18}/>}
+                                    <span>Generate Custom Set</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!examConfigOpen && (
+                        <button
+                            onClick={handleGenerateQuestions}
+                            disabled={isGenerating}
+                            className="w-full mb-6 bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20"
+                        >
+                            {isGenerating ? <Loader2 className="animate-spin" size={18}/> : <BrainCircuit size={18}/>}
+                            <span>Generate Questions ({questionCount})</span>
+                        </button>
+                    )}
+
                     <div className="space-y-6">
                        {topicQuestions.length === 0 ? (
                           <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-xl bg-gray-900/50">
                              <BrainCircuit size={48} className="mx-auto text-gray-600 mb-4"/>
                              <p className="text-gray-400 mb-4">No questions generated yet.</p>
-                             <button onClick={handleGenerateQuestions} className="text-purple-400 hover:text-purple-300 font-medium">Start Generation</button>
+                             <button onClick={() => setExamConfigOpen(true)} className="text-purple-400 hover:text-purple-300 font-medium">Configure Exam</button>
                           </div>
                        ) : (
                           topicQuestions.map((q, idx) => renderQuestionCard(q, idx, false))

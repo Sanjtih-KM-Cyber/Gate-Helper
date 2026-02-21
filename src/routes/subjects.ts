@@ -17,7 +17,7 @@ const upload = multer({ dest: 'uploads/' });
 
 // Initialize Local Ollama Model
 const llm = new ChatOllama({
-  model: 'qwen2.5-coder:3b',
+  model: 'qwen2.5-coder:7b',
   baseUrl: 'http://localhost:11434',
   temperature: 0,
   format: 'json',
@@ -50,7 +50,6 @@ async function parseFile(file: Express.Multer.File): Promise<string> {
 // Helper: Robust JSON Extractor using jsonrepair
 function extractJSON(text: string): any {
   let cleanContent = text.trim();
-  // Strip markdown code blocks if present
   if (cleanContent.startsWith('```json')) {
       cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
   } else if (cleanContent.startsWith('```')) {
@@ -58,12 +57,11 @@ function extractJSON(text: string): any {
   }
 
   try {
-      // Use jsonrepair to fix common issues (missing quotes, trailing commas, etc.)
       const repaired = jsonrepair(cleanContent);
       return JSON.parse(repaired);
   } catch (e) {
       console.error("JSON Repair/Parse Failed on content:", cleanContent);
-      return []; // Return empty array or object as safe fallback depending on context, but let caller handle structure check
+      return [];
   }
 }
 

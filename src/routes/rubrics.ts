@@ -5,10 +5,11 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { getRelevantContext } from '../utils/vectorStore.ts';
 
 const router = express.Router();
+// Use text format for prose generation
 const llm = new ChatOllama({
-  model: 'qwen2.5-coder:3b',
+  model: 'qwen2.5-coder:7b',
   baseUrl: 'http://localhost:11434',
-  temperature: 0.7,
+  temperature: 0.3, // Slightly higher for prose
   maxRetries: 2,
 });
 

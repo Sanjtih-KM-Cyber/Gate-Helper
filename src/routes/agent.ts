@@ -12,18 +12,18 @@ const router = express.Router();
 
 // Initialize Local Ollama Models
 const llm = new ChatOllama({
-  model: 'qwen2.5-coder:3b',
+  model: 'qwen2.5-coder:7b',
   baseUrl: 'http://localhost:11434',
-  temperature: 0, // Zero temperature to reduce hallucinations
-  format: 'json', // Enforce JSON output mode
+  temperature: 0,
+  format: 'json',
   maxRetries: 2,
 });
 
-// Code Assistant Model (Qwen)
+// Code Assistant Model
 const codeLlm = new ChatOllama({
-  model: 'qwen2.5-coder:3b', // Target model as requested
+  model: 'qwen2.5-coder:7b',
   baseUrl: 'http://localhost:11434',
-  temperature: 0.2, // Lower temperature for code
+  temperature: 0.2,
   maxRetries: 2,
 });
 
@@ -44,7 +44,6 @@ async function getSystemPrompt(baseInstruction: string) {
 // Helper: Robust JSON Extractor using jsonrepair
 function extractJSON(text: string): any {
   let cleanContent = text.trim();
-  // Strip markdown code blocks if present
   if (cleanContent.startsWith('```json')) {
       cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
   } else if (cleanContent.startsWith('```')) {
@@ -52,12 +51,11 @@ function extractJSON(text: string): any {
   }
 
   try {
-      // Use jsonrepair to fix common issues (missing quotes, trailing commas, etc.)
       const repaired = jsonrepair(cleanContent);
       return JSON.parse(repaired);
   } catch (e) {
       console.error("JSON Repair/Parse Failed on content:", cleanContent);
-      return []; // Return empty array as safe fallback
+      return [];
   }
 }
 
@@ -102,7 +100,6 @@ router.post('/lab-assist', async (req, res) => {
         return res.status(400).json({ error: 'Invalid action' });
     }
 
-    // Try using the specialized coding model first
     try {
         const response = await codeLlm.invoke([
             new SystemMessage(systemPrompt),
@@ -110,8 +107,7 @@ router.post('/lab-assist', async (req, res) => {
         ]);
         return res.json({ result: response.content });
     } catch (modelErr) {
-        console.warn("Failed to use qwen3-coder:30b, falling back to default LLM", modelErr);
-        // Fallback to standard LLM
+        console.warn("Failed to use qwen2.5-coder:7b, falling back to default LLM", modelErr);
         const response = await llm.invoke([
             new SystemMessage(systemPrompt),
             new HumanMessage(userPrompt)
@@ -128,15 +124,28 @@ router.post('/lab-assist', async (req, res) => {
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
   try {
-    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'], prepType = 'GATE', syllabusContext = '' } = req.body;
+    const {
+        topic,
+        count = 5,
+        types, // Optional override from frontend
+        difficulty, // Optional override
+        prepType = 'GATE',
+        syllabusContext = ''
+    } = req.body;
+
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
-    console.log(`Generating questions for: ${topic} (Mode: ${prepType})`);
+    // Defaults based on prepType if not provided
+    const targetTypes = types && types.length > 0 ? types : (prepType === 'College' ? ['2-mark', '5-mark', '8-mark'] : ['MCQ', 'MSQ', 'NAT']);
+    const targetDiff = difficulty && difficulty.length > 0 ? difficulty : (prepType === 'College' ? ['Easy', 'Medium', 'Hard'] : ['Hard', 'GATE Level']);
+    const numQuestions = Math.min(Math.max(count, 1), 15); // Clamp 1-15
+
+    console.log(`Generating ${numQuestions} questions for: ${topic} (Mode: ${prepType}, Types: ${targetTypes}, Diff: ${targetDiff})`);
 
     const localContext = await getRelevantContext(topic);
     let searchResults = '';
     try {
-      searchResults = await searchTool.invoke(`GATE previous year questions ${topic} ${types.join(' ')}`);
+      searchResults = await searchTool.invoke(`GATE previous year questions ${topic} ${targetTypes.join(' ')}`);
     } catch (e) {
       console.log('Search unavailable');
     }
@@ -154,6 +163,9 @@ router.post('/questions', async (req, res) => {
 
           If you write 100 words for a 2-mark question, you fail. Count your words mentally before generating the text.
 
+          Required Types: ${targetTypes.join(', ')}
+          Required Difficulty Levels: ${targetDiff.join(', ')}
+
           Strict JSON Format:
           [
             {
@@ -165,15 +177,17 @@ router.post('/questions', async (req, res) => {
           ]
         `;
     } else {
-        // GATE Default - Updated for Harder Questions & Strict Format
+        // GATE Default
         systemInstruction = "You are an exhaustive GATE exam generator. You create challenging, exam-level questions that test deep conceptual understanding and problem-solving skills.";
         formatInstruction = `
           MANDATORY REQUIREMENTS:
           1. **MCQ**: Must test deep conceptual clarity. Options should be confusing and closely related.
           2. **MSQ**: 1 to 4 options can be correct. Requires evaluating every option independently.
           3. **NAT**: Must require actual mathematical calculation or algorithm tracing. 'answer' must be a strict numerical value (e.g., "42", "3.14").
-          4. **Difficulty**: Default baseline is 'Hard' or 'GATE Level'. Do not generate trivial questions.
+          4. **Difficulty**: Target levels: ${targetDiff.join(', ')}. Do not generate trivial questions.
           5. **Format**: Return ONLY valid JSON matching the template below. DO NOT include any conversational text.
+
+          Required Types: ${targetTypes.join(', ')}
 
           Strict JSON Template:
           [
@@ -202,7 +216,7 @@ router.post('/questions', async (req, res) => {
       ${searchResults}
 
       Task:
-      Generate ${count} distinct, high-quality questions for "${topic}".
+      Generate ${numQuestions} distinct, high-quality questions for "${topic}".
       ${formatInstruction}
 
       IMPORTANT: You MUST output ONLY valid JSON. Every key and every string MUST be enclosed in double quotes. Do not output markdown backticks.

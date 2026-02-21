@@ -3,10 +3,11 @@ import { Mistake } from '../models/Mistake.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 const router = express.Router();
+// Prose generation
 const llm = new ChatOllama({
-  model: 'qwen2.5-coder:3b',
+  model: 'qwen2.5-coder:7b',
   baseUrl: 'http://localhost:11434',
-  temperature: 0.5,
+  temperature: 0.3,
   maxRetries: 2,
 });
 
