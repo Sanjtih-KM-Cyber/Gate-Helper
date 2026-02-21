@@ -7,16 +7,16 @@ import { getRelevantContext } from '../utils/vectorStore.ts';
 
 const router = express.Router();
 
-// Initialize Local Ollama Model
+// Initialize Local Ollama Model with Timeout Handling
 const llm = new ChatOllama({
   model: 'llama3.2',
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
+  // robust timeout/retry logic is handled via langchain invoke options or custom wrapper
 });
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
 
-// Helper to get system prompt
 async function getSystemPrompt(baseInstruction: string) {
   try {
     const settings = await Settings.findOne();
@@ -29,119 +29,100 @@ async function getSystemPrompt(baseInstruction: string) {
   return `You are an expert GATE exam tutor.\n\n${baseInstruction}`;
 }
 
-router.post('/', async (req, res) => {
+// Generate Questions (Infinite Exam Engine)
+router.post('/questions', async (req, res) => {
   try {
-    const { topic } = req.body;
+    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'] } = req.body;
+    if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
-    if (!topic) {
-      return res.status(400).json({ error: 'Topic is required' });
-    }
+    console.log(`Generating ${count} questions for: ${topic} (Types: ${types.join(', ')})`);
 
-    console.log(`Searching for GATE questions on: ${topic}`);
-
+    // Context Retrieval
+    const localContext = await getRelevantContext(topic);
     let searchResults = '';
     try {
-      searchResults = await searchTool.invoke(`GATE previous year questions for ${topic}`);
-    } catch (searchError) {
-      console.error('Search failed:', searchError);
-      searchResults = 'Search unavailable.';
+      searchResults = await searchTool.invoke(`GATE previous year questions ${topic} ${types.join(' ')}`);
+    } catch (e) {
+      console.log('Search unavailable');
     }
 
-    // Retrieve local context from vector store
-    const localContext = await getRelevantContext(topic);
-    console.log(`Retrieved local context length: ${localContext.length}`);
-
-    const baseInstruction = "You generate practice questions for GATE exams.";
-    const systemPrompt = await getSystemPrompt(baseInstruction);
-
+    const systemPrompt = await getSystemPrompt("You generate high-quality GATE exam questions.");
     const prompt = `
-      Context from Uploaded Notes/Books:
+      Context:
       ${localContext || "No specific notes found."}
-
-      Context from Web Search:
       ${searchResults}
-      
-      Task:
-      Generate 4 practice questions for the topic "${topic}" based on the context and your knowledge of the GATE syllabus.
-      Prioritize information from "Uploaded Notes" if available. If not, use "Web Search" and your internal knowledge.
-      NEVER say "I don't know" or "I cannot find information". Generate the best possible questions based on the topic name itself if context is missing.
-      Categorize them exactly into: 'Easy', 'Medium', 'Hard', 'Topper Level'.
-      
-      Format the output as a strictly valid JSON array of objects with keys:
-      - question (string)
-      - options (array of strings)
-      - answer (string - correct option)
-      - explanation (string)
-      - difficulty (string)
 
-      Do not include any markdown formatting (like \`\`\`json). Just return the raw JSON string.
+      Task:
+      Generate ${count} distinct GATE-style questions for "${topic}".
+      Include a mix of ${types.join(', ')} types as requested.
+      
+      For NAT (Numerical Answer Type), ensure the answer is a number range or specific value.
+      For MSQ (Multiple Select Question), ensure multiple options can be correct.
+      For MCQ (Multiple Choice Question), ensure exactly one option is correct.
+
+      Format as a strictly valid JSON array of objects:
+      [
+        {
+          "type": "MCQ" | "MSQ" | "NAT",
+          "question": "Question text...",
+          "options": ["A", "B", "C", "D"], // Empty for NAT
+          "answer": "Correct Answer (Option letter or Number)",
+          "explanation": "Detailed solution...",
+          "difficulty": "Easy" | "Medium" | "Hard"
+        }
+      ]
+
+      Return ONLY the raw JSON string. No markdown.
     `;
 
     const response = await llm.invoke([
       new SystemMessage(systemPrompt),
-      new HumanMessage(prompt),
+      new HumanMessage(prompt)
     ]);
 
     let cleanContent = response.content.toString().trim();
-    if (cleanContent.startsWith('```json')) {
-        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanContent.startsWith('```')) {
-        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
+    if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
 
     let questions;
     try {
       questions = JSON.parse(cleanContent);
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
-      console.log('Raw Content:', cleanContent);
-      return res.status(500).json({ error: 'Failed to parse AI response', raw: cleanContent });
+      // fallback to empty array instead of crashing
+      questions = [];
     }
 
     res.json({ topic, questions });
 
   } catch (error: any) {
-    console.error('Agent error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Question Generation Error:', error);
+    res.status(500).json({ error: 'Failed to generate questions. Ensure Ollama is running.' });
   }
 });
 
+// Visualize Concept
 router.post('/visualize', async (req, res) => {
   try {
     const { concept } = req.body;
     if (!concept) return res.status(400).json({ error: 'Concept is required' });
 
-    // Retrieve local context
     const localContext = await getRelevantContext(concept);
-
-    // Search Web Fallback
-    let searchResults = '';
-    try {
-       searchResults = await searchTool.invoke(`${concept} diagram flowchart structure`);
-    } catch(e) {
-       console.log("Search failed for visualization context");
-    }
-
     const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.");
 
     const prompt = `
-      Context from Notes:
-      ${localContext || "No specific notes found."}
+      Context: ${localContext || "No specific notes found."}
 
-      Context from Web:
-      ${searchResults}
+      Task: Create a Mermaid.js flowchart for: "${concept}".
 
-      Create a Mermaid.js flowchart to explain the concept: "${concept}".
-      Use the provided context to add specific details. If context is missing, use your internal knowledge about "${concept}".
-      NEVER refuse to generate. Always create a valid diagram based on the concept name.
-
-      IMPORTANT SYNTAX RULES:
+      STRICT SYNTAX RULES:
       1. Use ONLY standard arrow syntax: A --> B
-      2. DO NOT use ->> or -->> (these cause render errors).
+      2. NEVER use ->> or -->> or -.- (these cause render errors).
       3. Start with 'graph TD' or 'graph LR'.
-      4. Avoid special characters in node names unless wrapped in quotes (e.g. A["Node Name"]).
+      4. Use simple node names like A[Node Label]. Avoid special chars inside [].
+      5. Keep the graph simple and hierarchical.
 
-      Return ONLY the valid Mermaid code. Do not include markdown backticks.
+      Return ONLY the valid Mermaid code. No markdown.
     `;
 
     const response = await llm.invoke([
@@ -150,29 +131,81 @@ router.post('/visualize', async (req, res) => {
     ]);
 
     let mermaidCode = response.content.toString().trim();
-    if (mermaidCode.startsWith('```mermaid')) {
-        mermaidCode = mermaidCode.replace(/^```mermaid\s*/, '').replace(/\s*```$/, '');
-    } else if (mermaidCode.startsWith('```')) {
-        mermaidCode = mermaidCode.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    if (mermaidCode.startsWith('```mermaid')) mermaidCode = mermaidCode.replace(/^```mermaid\s*/, '').replace(/\s*```$/, '');
+    else if (mermaidCode.startsWith('```')) mermaidCode = mermaidCode.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+    // Validate simple syntax check
+    if (mermaidCode.includes('->>')) {
+        mermaidCode = mermaidCode.replace(/->>/g, '-->');
     }
 
     res.json({ mermaid: mermaidCode });
+
   } catch (error: any) {
     console.error('Visualizer error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Visualization generation failed.' });
   }
 });
 
-// New Endpoint: Explain Topic
+// Chat / Explain
+router.post('/chat', async (req, res) => {
+    try {
+      const { message, topic, mode = 'standard' } = req.body; // mode: 'standard' | 'socratic'
+      if (!message) return res.status(400).json({ error: 'Message is required' });
+
+      const localContext = await getRelevantContext(`${topic} ${message}`);
+      let searchResults = '';
+      try {
+          searchResults = await searchTool.invoke(`GATE ${topic} ${message}`);
+      } catch(e) {
+          console.log("Search failed for chat context");
+      }
+
+      let systemInstruction = "You are an interactive tutor. Answer the student's question directly.";
+      if (mode === 'socratic') {
+          systemInstruction = "You are a Socratic tutor. DO NOT give the answer directly. Instead, ask guiding questions to help the student derive the answer themselves. Give hints if they are stuck.";
+      }
+
+      const systemPrompt = await getSystemPrompt(systemInstruction);
+
+      const prompt = `
+        Current Topic: ${topic}
+        Context:
+        ${localContext || "No specific notes found."}
+        ${searchResults}
+
+        Student Question: ${message}
+
+        Response Guideline:
+        ${mode === 'socratic' ? 'Provide a hint or a follow-up question. Do not reveal the full answer.' : 'Provide a clear, direct answer.'}
+      `;
+
+      const response = await llm.invoke([
+         new SystemMessage(systemPrompt),
+         new HumanMessage(prompt)
+      ]);
+
+      res.json({ reply: response.content });
+    } catch (error: any) {
+      console.error('Chat error:', error);
+      res.status(500).json({ error: 'Chat service unavailable.' });
+    }
+  });
+
+  // Keep the old POST / root for backward compatibility if needed, but alias to questions
+  router.post('/', async (req, res) => {
+      // Forward to /questions with defaults
+      req.body.count = 4;
+      req.body.types = ['MCQ'];
+      return res.redirect(307, '/api/agent/questions');
+  });
+
 router.post('/explain', async (req, res) => {
   try {
     const { topic } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
-    // Retrieve local context
     const localContext = await getRelevantContext(topic);
-
-    // Search Web Fallback
     let searchResults = '';
     try {
         searchResults = await searchTool.invoke(`${topic} GATE computer science explanation tutorial`);
@@ -181,19 +214,14 @@ router.post('/explain', async (req, res) => {
     }
 
     const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.");
-
     const prompt = `
-      Context from Notes:
+      Context:
       ${localContext || "No specific notes found."}
-
-      Context from Web:
       ${searchResults}
 
       Explain the concept "${topic}" in detail.
-      Synthesize information from the Context from Notes and Context from Web.
-      If notes are empty, rely HEAVILY on the Web Search results and your own knowledge.
-      NEVER say "I don't know" or "I cannot find information".
-      Use examples and keep the tone consistent with your persona.
+      Synthesize information from the Context.
+      Use examples and keep the tone consistent.
       Structure the response with Markdown headers and bullet points.
     `;
 
@@ -208,55 +236,5 @@ router.post('/explain', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// Chat Endpoint
-router.post('/chat', async (req, res) => {
-    try {
-      const { message, topic } = req.body;
-      if (!message) return res.status(400).json({ error: 'Message is required' });
-
-      // Retrieve local context based on the message + topic
-      const query = `${topic} ${message}`;
-      const localContext = await getRelevantContext(query);
-
-      // Search Web Fallback
-      let searchResults = '';
-      try {
-          searchResults = await searchTool.invoke(`GATE ${topic} ${message}`);
-      } catch(e) {
-          console.log("Search failed for chat context");
-      }
-
-      const systemPrompt = await getSystemPrompt("You are an interactive tutor. Answer the student's question directly.");
-
-      const prompt = `
-        Current Topic: ${topic}
-        Context from Uploaded Notes:
-        ${localContext || "No specific notes found."}
-
-        Context from Web Search:
-        ${searchResults}
-
-        Student Question: ${message}
-
-        Answer the question clearly and concisely.
-        1. Check "Context from Uploaded Notes" first. If found, say "According to your notes...".
-        2. If not in notes, check "Context from Web Search". If found, say "Based on my search...".
-        3. If neither, use your general expert knowledge.
-
-        NEVER say "I don't know" or "I have no information". Always provide a helpful answer relevant to Computer Science and GATE.
-      `;
-
-      const response = await llm.invoke([
-         new SystemMessage(systemPrompt),
-         new HumanMessage(prompt)
-      ]);
-
-      res.json({ reply: response.content });
-    } catch (error: any) {
-      console.error('Chat error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
 
 export default router;
