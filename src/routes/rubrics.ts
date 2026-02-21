@@ -5,7 +5,13 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { getRelevantContext } from '../utils/vectorStore.ts';
 
 const router = express.Router();
-const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.7 });
+const llm = new ChatOllama({
+  model: 'qwen2.5-coder:3b',
+  baseUrl: 'http://localhost:11434',
+  temperature: 0.7,
+  maxRetries: 2,
+});
+
 router.get('/', async (req, res) => { try { const rubrics = await Rubric.find().sort({ marks: 1 }); res.json(rubrics); } catch (err) { res.status(500).json({ error: (err as any).message }); } });
 router.post('/', async (req, res) => { try { const rubric = new Rubric(req.body); await rubric.save(); res.json(rubric); } catch (err) { res.status(400).json({ error: (err as any).message }); } });
 router.post('/generate-answer', async (req, res) => {

@@ -3,7 +3,13 @@ import { Mistake } from '../models/Mistake.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 const router = express.Router();
-const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.5 });
+const llm = new ChatOllama({
+  model: 'qwen2.5-coder:3b',
+  baseUrl: 'http://localhost:11434',
+  temperature: 0.5,
+  maxRetries: 2,
+});
+
 router.get('/', async (req, res) => { try { const mistakes = await Mistake.find().sort({ createdAt: -1 }); res.json(mistakes); } catch (err) { res.status(500).json({ error: (err as any).message }); } });
 router.post('/', async (req, res) => { try { const mistake = new Mistake(req.body); await mistake.save(); res.json(mistake); } catch (err) { res.status(400).json({ error: (err as any).message }); } });
 router.delete('/:id', async (req, res) => { try { await Mistake.findByIdAndDelete(req.params.id); res.json({ message: 'Mistake deleted' }); } catch (err) { res.status(500).json({ error: (err as any).message }); } });
