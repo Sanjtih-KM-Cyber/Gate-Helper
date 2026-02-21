@@ -52,7 +52,7 @@ function extractJSON(text: string): any {
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
   try {
-    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'], prepType = 'GATE' } = req.body;
+    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'], prepType = 'GATE', syllabusContext = '' } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
     console.log(`Generating questions for: ${topic} (Mode: ${prepType})`);
@@ -69,10 +69,14 @@ router.post('/questions', async (req, res) => {
     let formatInstruction = "";
 
     if (prepType === 'College') {
-        systemInstruction = "You are an exhaustive exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Do not stop until all sub-concepts are covered.";
+        systemInstruction = "You are an exhaustive exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Output MUST contain 2-mark, 5-mark, and 8-mark questions. Classify each by difficulty (Easy/Medium/Hard). Do not stop until all sub-concepts are covered.";
         formatInstruction = `
-          Format: 2-mark, 5-mark, and 8-mark questions.
-          Classify each by difficulty (Easy/Medium/Hard).
+          Format Requirements:
+          - 2-mark questions: Answer approx 40-50 words.
+          - 5-mark questions: Answer approx 150-200 words.
+          - 8-mark questions: Answer approx 300-400 words.
+
+          Strictly limit scope to provided syllabus context.
 
           Strict JSON Format:
           [
@@ -86,10 +90,11 @@ router.post('/questions', async (req, res) => {
         `;
     } else {
         // GATE Default
-        systemInstruction = "You are an exhaustive GATE exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Do not stop until all mathematical and theoretical sub-concepts are covered.";
+        systemInstruction = "You are an exhaustive GATE exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Formats MUST be MCQ, MSQ, and NAT. Classify each by difficulty: Easy, Medium, Hard, and Topper. Do not stop until all mathematical and theoretical sub-concepts are covered.";
         formatInstruction = `
-          Formats MUST be MCQ, MSQ, and NAT.
-          Classify each by difficulty: Easy, Medium, Hard, and Topper.
+          Must generate: MCQ (Multiple Choice), MSQ (Multiple Select), and NAT (Numerical Answer Type).
+          Difficulty Levels: Easy, Medium, Hard, and Topper level.
+          Exhaustive: Must cover every mathematical and theoretical sub-concept in the provided topic context.
 
           Strict JSON Format:
           [
@@ -107,7 +112,12 @@ router.post('/questions', async (req, res) => {
 
     const systemPrompt = await getSystemPrompt(systemInstruction);
     const prompt = `
-      Context:
+      Topic: ${topic}
+
+      Syllabus Context:
+      ${syllabusContext}
+
+      Context from Notes:
       ${localContext || "No specific notes found."}
       ${searchResults}
 
@@ -115,7 +125,7 @@ router.post('/questions', async (req, res) => {
       Generate ${count} distinct questions for "${topic}".
       ${formatInstruction}
 
-      Return ONLY the raw JSON string. No markdown.
+      IMPORTANT: You MUST output ONLY valid JSON. Every key and every string MUST be enclosed in double quotes. Do not output markdown backticks.
     `;
 
     const response = await llm.invoke([
