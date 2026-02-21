@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const pptxParser = require('node-pptx-parser');
-const nodewhisper = require('nodejs-whisper');
+// const nodewhisper = require('nodejs-whisper'); // Disabled: Requires C++ tools
 
 import Tesseract from 'tesseract.js';
 import { YoutubeTranscript } from 'youtube-transcript';
@@ -76,16 +76,10 @@ router.post('/', upload.single('file'), async (req, res) => {
         const { data: { text } } = await Tesseract.recognize(filePath, 'eng');
         extractedText = text;
       } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
-        // Audio (Whisper)
-        try {
-            const result: any = await (nodewhisper as any)(filePath, {
-                modelName: 'base.en', // Ensure model is available
-            });
-            extractedText = result.transcription || JSON.stringify(result);
-        } catch (e) {
-            console.error("Whisper error", e);
-            extractedText = "Error transcribing audio. Ensure Whisper is installed locally.";
-        }
+        // Audio (Whisper) - DISABLED to avoid C++ build tool errors for the user
+        // To enable: npm install nodejs-whisper, install C++ Build Tools, and uncomment above require.
+        extractedText = "Audio transcription is currently disabled. Please install C++ Build Tools to enable Whisper.";
+        console.warn("Audio upload attempted but Whisper is disabled.");
       }
 
       // Cleanup uploaded file
