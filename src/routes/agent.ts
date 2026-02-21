@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
       searchResults = await searchTool.invoke(`GATE previous year questions for ${topic}`);
     } catch (searchError) {
       console.error('Search failed:', searchError);
-      searchResults = 'Search unavailable. Generating questions based on internal knowledge.';
+      searchResults = 'Search unavailable.';
     }
 
     // Retrieve local context from vector store
@@ -56,14 +56,15 @@ router.post('/', async (req, res) => {
 
     const prompt = `
       Context from Uploaded Notes/Books:
-      ${localContext || "No specific notes found. Rely on web search and general knowledge."}
+      ${localContext || "No specific notes found."}
 
       Context from Web Search:
       ${searchResults}
       
       Task:
       Generate 4 practice questions for the topic "${topic}" based on the context and your knowledge of the GATE syllabus.
-      Prioritize information from "Uploaded Notes" if available.
+      Prioritize information from "Uploaded Notes" if available. If not, use "Web Search" and your internal knowledge.
+      NEVER say "I don't know" or "I cannot find information". Generate the best possible questions based on the topic name itself if context is missing.
       Categorize them exactly into: 'Easy', 'Medium', 'Hard', 'Topper Level'.
       
       Format the output as a strictly valid JSON array of objects with keys:
@@ -113,14 +114,26 @@ router.post('/visualize', async (req, res) => {
     // Retrieve local context
     const localContext = await getRelevantContext(concept);
 
+    // Search Web Fallback
+    let searchResults = '';
+    try {
+       searchResults = await searchTool.invoke(`${concept} diagram flowchart structure`);
+    } catch(e) {
+       console.log("Search failed for visualization context");
+    }
+
     const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.");
 
     const prompt = `
       Context from Notes:
       ${localContext || "No specific notes found."}
 
+      Context from Web:
+      ${searchResults}
+
       Create a Mermaid.js flowchart to explain the concept: "${concept}".
-      Use the context to add specific details if available.
+      Use the provided context to add specific details. If context is missing, use your internal knowledge about "${concept}".
+      NEVER refuse to generate. Always create a valid diagram based on the concept name.
 
       IMPORTANT SYNTAX RULES:
       1. Use ONLY standard arrow syntax: A --> B
@@ -159,14 +172,27 @@ router.post('/explain', async (req, res) => {
     // Retrieve local context
     const localContext = await getRelevantContext(topic);
 
+    // Search Web Fallback
+    let searchResults = '';
+    try {
+        searchResults = await searchTool.invoke(`${topic} GATE computer science explanation tutorial`);
+    } catch(e) {
+        console.log("Search failed for explanation context");
+    }
+
     const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.");
 
     const prompt = `
       Context from Notes:
       ${localContext || "No specific notes found."}
 
+      Context from Web:
+      ${searchResults}
+
       Explain the concept "${topic}" in detail.
-      Reference the "Context from Notes" if relevant to provide a tailored explanation.
+      Synthesize information from the Context from Notes and Context from Web.
+      If notes are empty, rely HEAVILY on the Web Search results and your own knowledge.
+      NEVER say "I don't know" or "I cannot find information".
       Use examples and keep the tone consistent with your persona.
       Structure the response with Markdown headers and bullet points.
     `;
@@ -193,6 +219,14 @@ router.post('/chat', async (req, res) => {
       const query = `${topic} ${message}`;
       const localContext = await getRelevantContext(query);
 
+      // Search Web Fallback
+      let searchResults = '';
+      try {
+          searchResults = await searchTool.invoke(`GATE ${topic} ${message}`);
+      } catch(e) {
+          console.log("Search failed for chat context");
+      }
+
       const systemPrompt = await getSystemPrompt("You are an interactive tutor. Answer the student's question directly.");
 
       const prompt = `
@@ -200,10 +234,17 @@ router.post('/chat', async (req, res) => {
         Context from Uploaded Notes:
         ${localContext || "No specific notes found."}
 
+        Context from Web Search:
+        ${searchResults}
+
         Student Question: ${message}
 
-        Answer the question clearly and concisely. If the answer is in the Context from Uploaded Notes, explicitly mention "According to your notes...".
-        If not, use your general knowledge.
+        Answer the question clearly and concisely.
+        1. Check "Context from Uploaded Notes" first. If found, say "According to your notes...".
+        2. If not in notes, check "Context from Web Search". If found, say "Based on my search...".
+        3. If neither, use your general expert knowledge.
+
+        NEVER say "I don't know" or "I have no information". Always provide a helpful answer relevant to Computer Science and GATE.
       `;
 
       const response = await llm.invoke([
