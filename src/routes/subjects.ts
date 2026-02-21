@@ -3,8 +3,6 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import * as cheerio from 'cheerio';
-import { search } from 'duck-duck-scrape';
 import Tesseract from 'tesseract.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -126,7 +124,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
   }
 });
 
-// POST /gate-prep - Automated Web Scraping
+// POST /gate-prep - Automated Web Scraping (Replaced with Tavily API)
 router.post('/gate-prep', async (req, res) => {
   try {
     const { name } = req.body;
@@ -137,32 +135,40 @@ router.post('/gate-prep', async (req, res) => {
 
     console.log(`Auto-generating GATE syllabus for: ${name}`);
 
-    const query = `official GATE computer science syllabus for ${name} topics units`;
     let combinedContent = '';
 
-    // Fix 1: Wrap duck-duck-scrape in try/catch
+    // Fix 1: Replace duck-duck-scrape with Tavily API
     try {
-        const searchResults = await search(query, { safeSearch: 0 });
-        if (searchResults.results && searchResults.results.length > 0) {
-            const topResults = searchResults.results.slice(0, 2);
-            for (const result of topResults) {
-                try {
-                    const page = await axios.get(result.url, { timeout: 5000 });
-                    const $ = cheerio.load(page.data);
-                    $('script, style, nav, footer, header').remove();
-                    const text = $('body').text().replace(/\s+/g, ' ').trim();
-                    combinedContent += `\n--- Source: ${result.url} ---\n${text.substring(0, 5000)}`;
-                } catch (scrapeErr) {
-                    console.error(`Failed to scrape ${result.url}`, scrapeErr);
-                }
-            }
+        const apiKey = process.env.TAVILY_API_KEY;
+        if (!apiKey) {
+             throw new Error("TAVILY_API_KEY not found in environment variables.");
         }
-    } catch (searchErr) {
-        console.warn("Search failed or rate limited. Falling back to internal knowledge.", searchErr);
+
+        const query = `Official GATE syllabus units and topics for ${name}`;
+        console.log(`Searching Tavily: ${query}`);
+
+        const tavilyResponse = await axios.post('https://api.tavily.com/search', {
+            api_key: apiKey,
+            query: query,
+            search_depth: "advanced",
+            include_raw_content: true,
+            max_results: 3
+        });
+
+        if (tavilyResponse.data.results && tavilyResponse.data.results.length > 0) {
+             combinedContent = tavilyResponse.data.results.map((r: any) =>
+                 `Source: ${r.url}\nContent: ${r.raw_content || r.content}`
+             ).join('\n\n');
+        } else {
+             console.warn("Tavily returned no results.");
+        }
+
+    } catch (searchErr: any) {
+        console.warn("Tavily search failed. Falling back to internal knowledge.", searchErr.message);
         combinedContent = ""; // Explicitly clear so AI knows to use internal knowledge
     }
 
-    if (!combinedContent) combinedContent = "Search failed. Use internal knowledge to generate the syllabus.";
+    if (!combinedContent) combinedContent = "Search failed or unavailable. Use internal knowledge to generate the syllabus.";
 
     const systemPrompt = `You are an expert GATE Exam Tutor.
     IMPORTANT:
@@ -171,9 +177,10 @@ router.post('/gate-prep', async (req, res) => {
 
     const userPrompt = `
       Subject: ${name}
-      Context: ${combinedContent}
+      Context from Web Search:
+      ${combinedContent.substring(0, 15000)}
 
-      Task: Generate a comprehensive GATE syllabus JSON.
+      Task: Generate a comprehensive GATE syllabus JSON based on the context.
       Structure: { "syllabus": [{ "title": "Unit Name", "topics": [{ "name": "Topic 1", "status": "Not Started", "confidence": "Red" }] }] }
       Return raw JSON only.
     `;
