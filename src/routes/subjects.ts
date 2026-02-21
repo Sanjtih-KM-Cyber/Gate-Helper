@@ -75,11 +75,26 @@ router.get('/:id', async (req, res) => {
 // POST /college-prep - Manual Setup + File Upload
 router.post('/college-prep', upload.array('files'), async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, type = 'Theory' } = req.body;
     const files = req.files as Express.Multer.File[];
 
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
-    if (!files || files.length === 0) return res.status(400).json({ error: 'Syllabus files are required' });
+
+    // Handle Lab Type: Create Empty Subject
+    if (type === 'Lab') {
+       const newSubject = new Subject({
+          name,
+          description,
+          category: 'College Prep',
+          type: 'Lab',
+          syllabus: []
+       });
+       await newSubject.save();
+       return res.json(newSubject);
+    }
+
+    // Handle Theory Type: Require Files
+    if (!files || files.length === 0) return res.status(400).json({ error: 'Syllabus files are required for Theory subjects' });
 
     console.log(`Processing College Prep subject: ${name}`);
 
@@ -117,6 +132,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
       name,
       description,
       category: 'College Prep',
+      type: 'Theory',
       syllabus: syllabusData.syllabus || []
     });
 
@@ -125,6 +141,66 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
 
   } catch (err) {
     console.error('College Prep Error:', err);
+    res.status(500).json({ error: (err as any).message });
+  }
+});
+
+// POST /api/subjects/:id/parse-lab-manual - Lab Manual Parser
+router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Lab manual PDF is required' });
+
+    const subject = await Subject.findById(id);
+    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+
+    console.log(`Parsing Lab Manual for: ${subject.name}`);
+    const text = await parseFile(file);
+
+    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments from this lab manual.`;
+    const userPrompt = `
+      Manual Text:
+      ${text.substring(0, 20000)}
+
+      Task: Structure the experiments into Main Experiments (Units) and Sub-Experiments (Topics).
+      Example: Main: 'Experiment 1: Input/Output', Sub: '1(a) Read Input', '1(b) Print Output'.
+
+      Return JSON:
+      {
+        "syllabus": [
+          {
+            "title": "Experiment 1: Name",
+            "topics": [
+               { "name": "1(a) Sub Experiment Name", "status": "Not Started", "confidence": "Red" }
+            ]
+          }
+        ]
+      }
+    `;
+
+    const response = await llm.invoke([
+      new SystemMessage(systemPrompt),
+      new HumanMessage(userPrompt)
+    ]);
+
+    let parsedData;
+    try {
+      parsedData = extractJSON(response.content.toString());
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to parse lab manual structure' });
+    }
+
+    if (parsedData.syllabus) {
+       subject.syllabus = parsedData.syllabus;
+       subject.markModified('syllabus');
+       await subject.save();
+    }
+
+    res.json(subject);
+
+  } catch (err) {
+    console.error('Lab Parse Error:', err);
     res.status(500).json({ error: (err as any).message });
   }
 });
@@ -345,7 +421,7 @@ router.post('/gate-upload', upload.single('file'), async (req, res) => {
 // Update Topic Status / Confidence
 router.put('/:id/topic', async (req, res) => {
     try {
-        const { topicName, status, confidence } = req.body;
+        const { topicName, status, confidence, code } = req.body;
         const subject = await Subject.findById(req.params.id);
 
         if(!subject) return res.status(404).json({error: 'Subject not found'});
@@ -357,6 +433,7 @@ router.put('/:id/topic', async (req, res) => {
                     if (topic.name === topicName) {
                         if (status) topic.status = status;
                         if (confidence) topic.confidence = confidence;
+                        if (code !== undefined) topic.code = code; // Update code if provided
                         updated = true;
                     }
                 }

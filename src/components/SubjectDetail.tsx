@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Circle, AlertTriangle, Activity, Loader2 } from 'lucide-react';
+import LabWorkspace from './LabWorkspace';
 
 interface Topic {
   name: string;
@@ -19,6 +20,7 @@ interface Subject {
   name: string;
   description: string;
   category: string;
+  type?: 'Theory' | 'Lab';
   syllabus: Unit[];
 }
 
@@ -37,11 +39,6 @@ export default function SubjectDetail() {
     try {
       const res = await axios.get(`http://localhost:5000/api/subjects/${id}`);
       setSubject(res.data);
-
-      // If syllabus is empty, maybe trigger generation?
-      // Current flow: College Prep generates on upload. GATE Prep generates on creation.
-      // So syllabus should exist. If not, it might be in progress (but scraping is synchronous-ish in my implementation).
-      // Or maybe the scrape failed.
     } catch (err) {
       console.error(err);
       setError('Failed to load subject details.');
@@ -54,7 +51,7 @@ export default function SubjectDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
         <Loader2 className="animate-spin text-blue-500 mb-4" size={48} />
-        <p className="text-gray-400">Loading Syllabus...</p>
+        <p className="text-gray-400">Loading...</p>
       </div>
     );
   }
@@ -72,7 +69,21 @@ export default function SubjectDetail() {
     );
   }
 
-  // Calculate Progress
+  // Render Lab Workspace if type is Lab
+  if (subject.type === 'Lab') {
+      return (
+          <>
+            <div className="fixed top-20 left-8 z-50">
+               <Link to="/subjects/college-prep" className="flex items-center text-gray-400 hover:text-white bg-gray-900/80 p-2 rounded-full backdrop-blur-sm border border-gray-700 hover:border-gray-500 transition-all">
+                   <ArrowLeft size={20}/>
+               </Link>
+            </div>
+            <LabWorkspace subject={subject} />
+          </>
+      );
+  }
+
+  // Standard Theory View
   const totalTopics = subject.syllabus.reduce((acc, unit) => acc + unit.topics.length, 0);
   const completedTopics = subject.syllabus.reduce((acc, unit) =>
     acc + unit.topics.filter(t => t.status === 'Completed').length, 0

@@ -9,11 +9,18 @@ import axios from 'axios';
 
 const router = express.Router();
 
-// Initialize Local Ollama Model
+// Initialize Local Ollama Models
 const llm = new ChatOllama({
   model: 'llama3.2',
   baseUrl: 'http://localhost:11434',
   temperature: 0.7,
+});
+
+// Code Assistant Model (Qwen)
+const codeLlm = new ChatOllama({
+  model: 'qwen3-coder:30b', // Target model as requested
+  baseUrl: 'http://localhost:11434',
+  temperature: 0.2, // Lower temperature for code
 });
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
@@ -33,16 +40,12 @@ async function getSystemPrompt(baseInstruction: string) {
 // Helper: Robust JSON Extractor
 function extractJSON(text: string): any {
   let cleanContent = text.trim();
-  // Strip markdown code blocks
   if (cleanContent.startsWith('```json')) {
       cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
   } else if (cleanContent.startsWith('```')) {
       cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
   }
-
-  // Attempt to fix common trailing comma issue before closing brace/bracket
   cleanContent = cleanContent.replace(/,\s*([\]}])/g, '$1');
-
   try {
       return JSON.parse(cleanContent);
   } catch (e) {
@@ -61,6 +64,62 @@ function verifyAnswerWithPython(script: string): string | null {
         return null;
     }
 }
+
+// Lab Assistant Endpoint
+router.post('/lab-assist', async (req, res) => {
+  try {
+    const { code, action, language = 'c' } = req.body;
+    if (!code || !action) return res.status(400).json({ error: 'Code and action are required' });
+
+    let systemPrompt = "You are an expert coding tutor.";
+    let userPrompt = "";
+
+    switch (action) {
+      case 'explain':
+        systemPrompt += " Explain the provided code step-by-step for a college student. Focus on logic and flow.";
+        userPrompt = `Explain this ${language} code:\n\n${code}`;
+        break;
+      case 'shorten':
+        systemPrompt += " Refactor the code to be shorter and more efficient without changing functionality. Provide the refactored code and a brief explanation.";
+        userPrompt = `Shorten this ${language} code:\n\n${code}`;
+        break;
+      case 'comment':
+        systemPrompt += " Add detailed educational comments to the code. Explain complex lines.";
+        userPrompt = `Add comments to this ${language} code:\n\n${code}`;
+        break;
+      case 'chat':
+         systemPrompt += " Answer the student's question about the code.";
+         userPrompt = `Code:\n${code}\n\nQuestion: ${req.body.message || "Help me with this."}`;
+         break;
+      default:
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    // Try using the specialized coding model first
+    try {
+        const response = await codeLlm.invoke([
+            new SystemMessage(systemPrompt),
+            new HumanMessage(userPrompt)
+        ]);
+        return res.json({ result: response.content });
+    } catch (modelErr) {
+        console.warn("Failed to use qwen3-coder:30b, falling back to default LLM", modelErr);
+        // Fallback to standard LLM
+        const response = await llm.invoke([
+            new SystemMessage(systemPrompt),
+            new HumanMessage(userPrompt)
+        ]);
+        return res.json({ result: response.content });
+    }
+
+  } catch (error: any) {
+    console.error('Lab Assist Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ... [Existing routes: questions, visualize, chat, explain, pyq] ...
+// (Retaining existing code below for brevity in diff application, but writing full file content)
 
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
