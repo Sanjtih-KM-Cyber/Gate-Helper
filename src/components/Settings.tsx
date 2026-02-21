@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, User, MessageSquare } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Save, User, MessageSquare, X } from 'lucide-react';
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [aiName, setAiName] = useState('GATE Tutor');
   const [aiPersona, setAiPersona] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,10 +41,19 @@ export default function Settings() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white mb-2">AI Settings</h1>
-        <p className="text-gray-400">Customize your tutor's personality and name.</p>
+    <div className="max-w-2xl mx-auto space-y-8 relative">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">AI Settings</h1>
+          <p className="text-gray-400">Customize your tutor's personality and name.</p>
+        </div>
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 bg-gray-800 hover:bg-gray-700 rounded-full text-gray-400 hover:text-white transition-colors"
+          title="Go Back"
+        >
+          <X size={24} />
+        </button>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 space-y-6">
