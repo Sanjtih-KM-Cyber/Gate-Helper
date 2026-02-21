@@ -22,9 +22,11 @@ export default function MistakeVault() {
   const fetchMistakes = async () => {
     try {
       const res = await axios.get('http://localhost:5000/api/mistakes');
-      setMistakes(res.data);
+      // Ensure we always set an array, even if API returns null/undefined by mistake
+      setMistakes(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error(err);
+      setMistakes([]); // Safe fallback on error
     }
   };
 
