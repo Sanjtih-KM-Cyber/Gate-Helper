@@ -325,13 +325,18 @@ router.post('/gate-prep', async (req, res) => {
 });
 
 // POST /gate-upload - Master GATE Syllabus Upload & Merge
-router.post('/gate-upload', upload.single('file'), async (req, res) => {
+router.post('/gate-upload', upload.array('files'), async (req, res) => {
   try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Syllabus file is required' });
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) return res.status(400).json({ error: 'Syllabus files are required' });
 
-    console.log(`Processing Master GATE Syllabus: ${file.originalname}`);
-    const text = await parseFile(file);
+    console.log(`Processing Master GATE Syllabus Upload: ${files.length} files`);
+
+    let combinedText = '';
+    for (const file of files) {
+      const text = await parseFile(file);
+      combinedText += `\n--- File: ${file.originalname} ---\n${text}`;
+    }
 
     const systemPrompt = `You are a data extraction AI. Extract structured syllabus data from the provided text.
     The text contains syllabus for one or multiple GATE subjects.
@@ -357,7 +362,7 @@ router.post('/gate-upload', upload.single('file'), async (req, res) => {
 
     const response = await llm.invoke([
       new SystemMessage(systemPrompt),
-      new HumanMessage(text.substring(0, 25000)) // Limit context
+      new HumanMessage(combinedText.substring(0, 25000)) // Limit context
     ]);
 
     let extractedData;
