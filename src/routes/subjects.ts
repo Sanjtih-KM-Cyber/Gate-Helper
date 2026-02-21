@@ -44,6 +44,15 @@ async function parseFile(file: Express.Multer.File): Promise<string> {
   return text;
 }
 
+// Helper: JSON Extractor
+function extractJSON(text: string): any {
+  let cleanContent = text.trim();
+  if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  cleanContent = cleanContent.replace(/,\s*([\]}])/g, '$1');
+  return JSON.parse(cleanContent);
+}
+
 router.get('/', async (req, res) => {
   try {
     const subjects = await Subject.find().sort({ name: 1 });
@@ -96,13 +105,9 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
       new HumanMessage(userPrompt)
     ]);
 
-    let cleanContent = response.content.toString().trim();
-    if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-
     let syllabusData: { syllabus: IUnit[] };
     try {
-      syllabusData = JSON.parse(cleanContent);
+      syllabusData = extractJSON(response.content.toString());
     } catch (e) {
       console.error('Failed to parse AI syllabus:', e);
       syllabusData = { syllabus: [{ title: 'Overview', topics: [{ name: 'Introduction', status: 'Not Started', confidence: 'Red' }] }] };
@@ -124,7 +129,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
   }
 });
 
-// POST /gate-prep - Automated Web Scraping (Replaced with Tavily API)
+// POST /gate-prep - Automated Web Scraping (Tavily API)
 router.post('/gate-prep', async (req, res) => {
   try {
     const { name } = req.body;
@@ -137,7 +142,6 @@ router.post('/gate-prep', async (req, res) => {
 
     let combinedContent = '';
 
-    // Fix 1: Replace duck-duck-scrape with Tavily API
     try {
         const apiKey = process.env.TAVILY_API_KEY;
         if (!apiKey) {
@@ -165,7 +169,7 @@ router.post('/gate-prep', async (req, res) => {
 
     } catch (searchErr: any) {
         console.warn("Tavily search failed. Falling back to internal knowledge.", searchErr.message);
-        combinedContent = ""; // Explicitly clear so AI knows to use internal knowledge
+        combinedContent = "";
     }
 
     if (!combinedContent) combinedContent = "Search failed or unavailable. Use internal knowledge to generate the syllabus.";
@@ -190,20 +194,14 @@ router.post('/gate-prep', async (req, res) => {
       new HumanMessage(userPrompt)
     ]);
 
-    let cleanContent = response.content.toString().trim();
-    if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-
     let syllabusData: { syllabus: IUnit[] };
     try {
-      syllabusData = JSON.parse(cleanContent);
+      syllabusData = extractJSON(response.content.toString());
 
-      // Fix 2b: Sanitize Enums
       if (syllabusData.syllabus && Array.isArray(syllabusData.syllabus)) {
           syllabusData.syllabus.forEach(unit => {
               if (unit.topics && Array.isArray(unit.topics)) {
                   unit.topics.forEach(topic => {
-                      // Force enum values to prevent Mongoose validation errors
                       topic.status = "Not Started";
                       topic.confidence = "Red";
                   });
@@ -232,7 +230,119 @@ router.post('/gate-prep', async (req, res) => {
   }
 });
 
-// Update Topic Status / Confidence (Legacy PUT)
+// POST /gate-upload - Master GATE Syllabus Upload & Merge
+router.post('/gate-upload', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Syllabus file is required' });
+
+    console.log(`Processing Master GATE Syllabus: ${file.originalname}`);
+    const text = await parseFile(file);
+
+    const systemPrompt = `You are a data extraction AI. Extract structured syllabus data from the provided text.
+    The text contains syllabus for one or multiple GATE subjects.
+
+    Task: Return a strict JSON object with this structure:
+    {
+      "subjects": [
+        {
+          "name": "Subject Name",
+          "syllabus": [
+             {
+               "title": "Unit Name",
+               "topics": [ { "name": "Topic 1" }, { "name": "Topic 2" } ]
+             }
+          ]
+        }
+      ]
+    }
+
+    Ignore non-syllabus text.
+    `;
+
+    const response = await llm.invoke([
+      new SystemMessage(systemPrompt),
+      new HumanMessage(text.substring(0, 25000)) // Limit context
+    ]);
+
+    let extractedData;
+    try {
+      extractedData = extractJSON(response.content.toString());
+    } catch (e) {
+      console.error('Failed to parse Master Syllabus JSON:', e);
+      return res.status(500).json({ error: 'Failed to extract syllabus structure from AI response.' });
+    }
+
+    if (!extractedData.subjects || !Array.isArray(extractedData.subjects)) {
+        return res.status(400).json({ error: 'Invalid AI response structure.' });
+    }
+
+    const results = [];
+
+    // Merge Logic
+    for (const subData of extractedData.subjects) {
+       let subject = await Subject.findOne({ name: subData.name, category: 'GATE Prep' });
+
+       if (!subject) {
+           // Create New
+           // Sanitize new topics
+           const sanitizedSyllabus = subData.syllabus.map((unit: any) => ({
+               title: unit.title,
+               topics: unit.topics.map((t: any) => ({
+                   name: t.name,
+                   status: 'Not Started',
+                   confidence: 'Red'
+               }))
+           }));
+
+           subject = new Subject({
+               name: subData.name,
+               description: 'Extracted from Master Syllabus',
+               category: 'GATE Prep',
+               syllabus: sanitizedSyllabus
+           });
+       } else {
+           // Merge
+           subData.syllabus.forEach((newUnit: any) => {
+               const existingUnit = subject!.syllabus.find(u => u.title === newUnit.title);
+               if (existingUnit) {
+                   // Merge topics
+                   newUnit.topics.forEach((newTopic: any) => {
+                       if (!existingUnit.topics.some(t => t.name === newTopic.name)) {
+                           existingUnit.topics.push({
+                               name: newTopic.name,
+                               status: 'Not Started',
+                               confidence: 'Red'
+                           });
+                       }
+                   });
+               } else {
+                   // Add new unit
+                   subject!.syllabus.push({
+                       title: newUnit.title,
+                       topics: newUnit.topics.map((t: any) => ({
+                           name: t.name,
+                           status: 'Not Started',
+                           confidence: 'Red'
+                       }))
+                   });
+               }
+           });
+           subject.markModified('syllabus');
+       }
+       await subject.save();
+       results.push(subject.name);
+    }
+
+    res.json({ message: `Successfully processed ${results.length} subjects.`, subjects: results });
+
+  } catch (err) {
+    console.error('Gate Upload Error:', err);
+    res.status(500).json({ error: (err as any).message });
+  }
+});
+
+// Update Topic Status / Confidence
 router.put('/:id/topic', async (req, res) => {
     try {
         const { topicName, status, confidence } = req.body;
@@ -266,7 +376,7 @@ router.put('/:id/topic', async (req, res) => {
     }
 });
 
-// New Endpoint: Update Topic Status & Auto-Complete Subject
+// Update Topic Status & Auto-Complete Subject
 router.put('/:id/topic-status', async (req, res) => {
   try {
     const { topicName, status } = req.body;
@@ -285,7 +395,6 @@ router.put('/:id/topic-status', async (req, res) => {
             topic.status = status;
             topicFound = true;
           }
-          // Check completion status of all topics
           if (topic.status !== 'Completed') {
             allCompleted = false;
           }
@@ -297,7 +406,6 @@ router.put('/:id/topic-status', async (req, res) => {
       return res.status(404).json({ error: 'Topic not found' });
     }
 
-    // Auto-update Subject Status
     if (allCompleted) {
       subject.status = 'Completed';
     } else if (subject.status === 'Not Started' && status === 'In Progress') {
