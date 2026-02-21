@@ -1,323 +1,446 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-import mermaid from 'mermaid';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, BookOpen, BrainCircuit, Activity, Send, MessageSquare, AlertTriangle } from 'lucide-react';
-
-interface Question {
-  question: string;
-  options: string[];
-  answer: string;
-  explanation: string;
-  difficulty: string;
-}
+import {
+  ArrowLeft, MessageSquare, AlertTriangle, Code, BrainCircuit,
+  Send, CheckCircle, HelpCircle, Activity,
+  Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2
+} from 'lucide-react';
+import { useGlobalTask, Question } from '../context/GlobalTaskManager';
 
 interface ChatMessage {
   sender: 'user' | 'ai';
   text: string;
 }
 
-// === Reusable Visualizer Component (Simplified) ===
-mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });
-
-function MermaidChart({ code }: { code: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const renderChart = async () => {
-      setError(null);
-      if (containerRef.current && code) {
-        try {
-            if (code.includes('->>')) {
-                 throw new Error("Invalid arrow syntax '->>' detected. Please regenerate.");
-            }
-            containerRef.current.innerHTML = '';
-            const id = `mermaid-${Date.now()}`;
-            const { svg } = await mermaid.render(id, code);
-            containerRef.current.innerHTML = svg;
-        } catch (err: any) {
-            console.error('Mermaid render error', err);
-            setError(err.message || 'Syntax Error');
-            containerRef.current.innerHTML = '';
-        }
-      }
-    };
-    renderChart();
-  }, [code]);
-
-  if (error) {
-      return (
-          <div className="flex flex-col items-center justify-center p-8 bg-red-900/20 border border-red-800 rounded-lg min-h-[300px]">
-              <AlertTriangle className="text-red-500 mb-2" size={32} />
-              <p className="text-red-400 font-bold mb-1">Visualization Failed</p>
-              <p className="text-red-300/80 text-sm text-center max-w-md">
-                  {error}
-              </p>
-          </div>
-      );
-  }
-  return <div ref={containerRef} className="overflow-x-auto flex justify-center p-4 bg-gray-950 rounded-lg min-h-[300px] items-center" />;
+interface Mistake {
+  _id: string;
+  question: string;
+  userAnswer: string;
+  correctAnswer: string;
+  explanation: string;
 }
 
-export default function TopicStudio() {
-  const { id: subjectId, topic: topicName } = useParams<{ id: string; topic: string }>();
-  const [activeTab, setActiveTab] = useState<'chat' | 'learn' | 'quiz' | 'visualize'>('chat');
-  const [loading, setLoading] = useState(false);
-  const [content, setContent] = useState(''); // For Learn/Explain
-  const [questions, setQuestions] = useState<Question[]>([]); // For Quiz
-  const [mermaidCode, setMermaidCode] = useState(''); // For Visualize
+// === Sub-components ===
 
-  // Chat State
-  const [messages, setMessages] = useState<ChatMessage[]>([{ sender: 'ai', text: `Hi! I'm your AI Tutor. Ask me anything about "${decodeURIComponent(topicName || '')}".` }]);
+function SimpleCalculator() {
+  const [display, setDisplay] = useState('');
+
+  const handleBtn = (val: string) => {
+    if (val === 'C') setDisplay('');
+    else if (val === '=') {
+      try {
+        // eslint-disable-next-line
+        setDisplay(eval(display).toString());
+      } catch (e) {
+        setDisplay('Error');
+      }
+    } else {
+      setDisplay(prev => prev + val);
+    }
+  };
+
+  const buttons = [
+    '7', '8', '9', '/',
+    '4', '5', '6', '*',
+    '1', '2', '3', '-',
+    '0', '.', '=', '+',
+    'C'
+  ];
+
+  return (
+    <div className="p-4 flex flex-col h-full bg-gray-950">
+      <div className="bg-gray-800 p-4 rounded-lg mb-4 text-right text-2xl font-mono text-white overflow-x-auto">
+        {display || '0'}
+      </div>
+      <div className="grid grid-cols-4 gap-2 flex-1">
+        {buttons.map(btn => (
+          <button
+            key={btn}
+            onClick={() => handleBtn(btn)}
+            className={`rounded-lg font-bold text-xl transition-colors ${
+              btn === '=' ? 'bg-blue-600 hover:bg-blue-500 text-white col-span-2' :
+              btn === 'C' ? 'bg-red-600 hover:bg-red-500 text-white col-span-2' :
+              ['/', '*', '-', '+'].includes(btn) ? 'bg-gray-700 hover:bg-gray-600 text-blue-400' :
+              'bg-gray-800 hover:bg-gray-700 text-gray-200'
+            }`}
+            style={{ gridColumn: btn === '=' || btn === 'C' ? 'span 2' : 'span 1' }}
+          >
+            {btn}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DigitalWhiteboard() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [color, setColor] = useState('#ffffff');
+  const [eraser, setEraser] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+        // Handle resize if needed, for now fixed size relative to container
+        canvas.width = canvas.parentElement?.clientWidth || 300;
+        canvas.height = canvas.parentElement?.clientHeight || 400;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = "#111827"; // bg-gray-900
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+  }, []);
+
+  const startDrawing = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.beginPath();
+    ctx.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    setIsDrawing(true);
+  };
+
+  const draw = (e: React.MouseEvent) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.strokeStyle = eraser ? '#111827' : color;
+    ctx.lineWidth = eraser ? 20 : 2;
+    ctx.lineCap = 'round';
+
+    ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clear = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+          ctx.fillStyle = "#111827";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+  }
+
+  return (
+      <div className="flex flex-col h-full bg-gray-950 relative">
+          <div className="absolute top-2 left-2 flex space-x-2 bg-gray-800/80 p-1 rounded-lg backdrop-blur-sm border border-gray-700">
+              <input type="color" value={color} onChange={e => { setColor(e.target.value); setEraser(false); }} className="w-8 h-8 rounded cursor-pointer bg-transparent" />
+              <button onClick={() => setEraser(!eraser)} className={`p-1.5 rounded ${eraser ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`} title="Eraser">
+                  <Eraser size={16}/>
+              </button>
+              <button onClick={clear} className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-700" title="Clear">
+                  <Trash2 size={16}/>
+              </button>
+          </div>
+          <canvas
+              ref={canvasRef}
+              className="flex-1 cursor-crosshair touch-none"
+              onMouseDown={startDrawing}
+              onMouseMove={draw}
+              onMouseUp={stopDrawing}
+              onMouseLeave={stopDrawing}
+          />
+      </div>
+  )
+}
+
+// === Main Component ===
+
+export default function TopicStudio() {
+  const { subjectId, topic } = useParams<{ subjectId: string; topic: string }>();
+  const decodedTopic = decodeURIComponent(topic || '');
+
+  const [activeTab, setActiveTab] = useState<'chat' | 'exam' | 'mistakes'>('chat');
+  const [showSidePanel, setShowSidePanel] = useState(true);
+  const [sidePanelTab, setSidePanelTab] = useState<'code' | 'whiteboard' | 'calculator'>('code');
+
+  const [confidence, setConfidence] = useState<'Red' | 'Yellow' | 'Green'>('Red');
+  const [status, setStatus] = useState<'Not Started' | 'In Progress' | 'Completed'>('In Progress');
+
+  const [messages, setMessages] = useState<ChatMessage[]>([{ sender: 'ai', text: `Hi! I'm your AI Tutor. Let's master "${decodedTopic}".` }]);
   const [inputMessage, setInputMessage] = useState('');
+  const [socraticMode, setSocraticMode] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const decodedTopic = decodeURIComponent(topicName || '');
+  const [scratchpadContent, setScratchpadContent] = useState('// Write your C code or SQL queries here...');
 
-  // Reset state when topic changes
+  const [mistakes, setMistakes] = useState<Mistake[]>([]);
+  const [loadingMistakes, setLoadingMistakes] = useState(false);
+
+  const { generatedQuestions, startQuestionGeneration, isGenerating } = useGlobalTask();
+  const topicQuestions = generatedQuestions[decodedTopic] || [];
+
+  // Init
   useEffect(() => {
-    setContent('');
-    setQuestions([]);
-    setMermaidCode('');
-    setMessages([{ sender: 'ai', text: `Hi! I'm your AI Tutor. Ask me anything about "${decodedTopic}".` }]);
-    setActiveTab('chat');
-  }, [decodedTopic]);
+    fetchTopicDetails();
+    if (activeTab === 'mistakes') fetchMistakes();
+  }, [subjectId, decodedTopic, activeTab]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const fetchExplanation = async () => {
-    setLoading(true);
+  // Auto-switch to tools if NAT question appears? Or just let user choose.
+  // The requirement: "If a question is identified as NAT..., render a basic built-in calculator and a digital scratchpad/whiteboard component in the UI"
+  // I'll show a hint to use them.
+
+  const fetchTopicDetails = async () => {
     try {
-      const res = await axios.post('http://localhost:5000/api/agent/explain', { topic: decodedTopic });
-      setContent(res.data.explanation);
+      const res = await axios.get(`http://localhost:5000/api/subjects/${subjectId}`);
+      if (res.data.syllabus) {
+        for (const unit of res.data.syllabus) {
+            const t = unit.topics.find((t: any) => t.name === decodedTopic);
+            if (t) {
+                setConfidence(t.confidence);
+                setStatus(t.status);
+                break;
+            }
+        }
+      }
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const generateQuiz = async () => {
-    if (questions.length > 0) return;
-    setLoading(true);
+  const updateTopicStatus = async (newConfidence: 'Red' | 'Yellow' | 'Green') => {
+    setConfidence(newConfidence);
     try {
-      const res = await axios.post('http://localhost:5000/api/agent', { topic: decodedTopic });
-      setQuestions(res.data.questions);
+        await axios.put(`http://localhost:5000/api/subjects/${subjectId}/topic`, {
+            topicName: decodedTopic,
+            confidence: newConfidence,
+            status: 'In Progress'
+        });
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+        console.error("Failed to update status", err);
     }
   };
 
-  const generateVisualization = async () => {
-    if (mermaidCode) return;
-    setLoading(true);
+  const fetchMistakes = async () => {
+    setLoadingMistakes(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/agent/visualize', { concept: decodedTopic });
-      setMermaidCode(res.data.mermaid);
+      const res = await axios.get('http://localhost:5000/api/mistakes');
+      const filtered = res.data.filter((m: any) => m.topic === decodedTopic);
+      setMistakes(filtered);
     } catch (err) {
       console.error(err);
+      setMistakes([]);
     } finally {
-      setLoading(false);
+      setLoadingMistakes(false);
     }
   };
 
   const sendMessage = async () => {
     if (!inputMessage.trim()) return;
-
     const userMsg = inputMessage;
     setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
     setInputMessage('');
-    setLoading(true);
+    setChatLoading(true);
 
     try {
       const res = await axios.post('http://localhost:5000/api/agent/chat', {
-          message: userMsg,
-          topic: decodedTopic
+        message: userMsg,
+        topic: decodedTopic,
+        mode: socraticMode ? 'socratic' : 'standard'
       });
       setMessages(prev => [...prev, { sender: 'ai', text: res.data.reply }]);
     } catch (err) {
-      setMessages(prev => [...prev, { sender: 'ai', text: 'Sorry, I encountered an error connecting to the backend.' }]);
-      console.error(err);
+      setMessages(prev => [...prev, { sender: 'ai', text: "I'm having trouble connecting." }]);
     } finally {
-      setLoading(false);
+      setChatLoading(false);
     }
   };
 
+  const handleGenerateQuestions = () => {
+    startQuestionGeneration(decodedTopic, 5, ['MCQ', 'MSQ', 'NAT']);
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)]">
+    <div className="flex flex-col h-[calc(100vh-6rem)] bg-gray-950 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
          <div className="flex items-center space-x-4">
-            <Link to={`/subject/${subjectId}`} className="text-gray-400 hover:text-white transition-colors bg-gray-800 p-2 rounded-full">
-              <ArrowLeft size={20} />
+            <Link to={`/subject/${subjectId}`} className="text-gray-400 hover:text-white p-2 hover:bg-gray-900 rounded-full transition-colors">
+               <ArrowLeft size={20} />
             </Link>
-            <h1 className="text-2xl font-bold text-white truncate max-w-md">{decodedTopic}</h1>
+            <div>
+               <h1 className="text-xl font-bold text-white truncate max-w-md">{decodedTopic}</h1>
+               <div className="flex items-center space-x-2 text-xs text-gray-500">
+                  <span className={`w-2 h-2 rounded-full ${status === 'Completed' ? 'bg-green-500' : 'bg-blue-500'}`}></span>
+                  <span>{status}</span>
+               </div>
+            </div>
          </div>
 
-         <div className="flex bg-gray-900 rounded-lg p-1 border border-gray-800 shadow-sm">
+         <div className="flex items-center space-x-4">
+            <div className="flex bg-gray-900 rounded-full p-1 border border-gray-800">
+               <button onClick={() => updateTopicStatus('Red')} className={`p-2 rounded-full transition-all ${confidence === 'Red' ? 'bg-red-500 shadow-lg shadow-red-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Low Confidence">
+                  <AlertTriangle size={16} className={confidence === 'Red' ? 'text-white' : ''}/>
+               </button>
+               <button onClick={() => updateTopicStatus('Yellow')} className={`p-2 rounded-full transition-all ${confidence === 'Yellow' ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Medium Confidence">
+                  <Activity size={16} className={confidence === 'Yellow' ? 'text-white' : ''}/>
+               </button>
+               <button onClick={() => updateTopicStatus('Green')} className={`p-2 rounded-full transition-all ${confidence === 'Green' ? 'bg-green-500 shadow-lg shadow-green-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="High Confidence">
+                  <CheckCircle size={16} className={confidence === 'Green' ? 'text-white' : ''}/>
+               </button>
+            </div>
+
             <button
-              onClick={() => setActiveTab('chat')}
-              className={`px-4 py-2 rounded-md flex items-center space-x-2 transition-colors text-sm font-medium ${activeTab === 'chat' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              onClick={() => setShowSidePanel(!showSidePanel)}
+              className={`p-2 rounded-lg transition-colors ${showSidePanel ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+              title="Toggle Side Panel"
             >
-               <MessageSquare size={16} /> <span>Chat</span>
-            </button>
-            <button
-              onClick={() => { setActiveTab('learn'); if(!content) fetchExplanation(); }}
-              className={`px-4 py-2 rounded-md flex items-center space-x-2 transition-colors text-sm font-medium ${activeTab === 'learn' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-            >
-               <BookOpen size={16} /> <span>Notes</span>
-            </button>
-            <button
-              onClick={() => { setActiveTab('quiz'); generateQuiz(); }}
-              className={`px-4 py-2 rounded-md flex items-center space-x-2 transition-colors text-sm font-medium ${activeTab === 'quiz' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-            >
-               <Activity size={16} /> <span>Quiz</span>
-            </button>
-            <button
-              onClick={() => { setActiveTab('visualize'); generateVisualization(); }}
-              className={`px-4 py-2 rounded-md flex items-center space-x-2 transition-colors text-sm font-medium ${activeTab === 'visualize' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-            >
-               <BrainCircuit size={16} /> <span>Visualize</span>
+               <Code size={20} />
             </button>
          </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-inner custom-scrollbar relative flex flex-col">
-        {loading && activeTab !== 'chat' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/80 z-10 backdrop-blur-sm">
-            <BrainCircuit size={48} className="mb-4 text-blue-500 animate-pulse" />
-            <p className="text-xl text-gray-300 font-medium">Consulting AI Tutor...</p>
-          </div>
-        )}
+      <div className="flex flex-1 overflow-hidden space-x-4">
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col bg-gray-900 rounded-xl border border-gray-800 overflow-hidden shadow-2xl">
+           <div className="flex border-b border-gray-800">
+              <button onClick={() => setActiveTab('chat')} className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${activeTab === 'chat' ? 'bg-gray-800 text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                 <MessageSquare size={16}/> <span>AI Tutor</span>
+              </button>
+              <button onClick={() => setActiveTab('exam')} className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${activeTab === 'exam' ? 'bg-gray-800 text-white border-b-2 border-purple-500' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                 <BrainCircuit size={16}/> <span>Infinite Exam</span>
+              </button>
+              <button onClick={() => setActiveTab('mistakes')} className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${activeTab === 'mistakes' ? 'bg-gray-800 text-white border-b-2 border-orange-500' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                 <AlertTriangle size={16}/> <span>Mistake Vault</span>
+              </button>
+           </div>
 
-        {/* Chat Tab */}
-        {activeTab === 'chat' && (
-            <>
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                    {messages.map((msg, idx) => (
-                        <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-2xl px-5 py-3 ${
-                                msg.sender === 'user'
-                                ? 'bg-blue-600 text-white rounded-br-none'
-                                : 'bg-gray-800 text-gray-200 border border-gray-700 rounded-bl-none'
-                            }`}>
-                                <ReactMarkdown>{msg.text}</ReactMarkdown>
-                            </div>
-                        </div>
-                    ))}
-                    {loading && (
-                        <div className="flex justify-start">
-                            <div className="bg-gray-800 text-gray-400 rounded-2xl px-5 py-3 rounded-bl-none border border-gray-700 animate-pulse">
-                                Typing...
-                            </div>
-                        </div>
-                    )}
-                    <div ref={chatEndRef} />
-                </div>
-                <div className="p-4 bg-gray-900 border-t border-gray-800">
-                    <div className="relative flex items-center">
-                        <input
-                            type="text"
-                            className="w-full bg-gray-800 border border-gray-700 text-white rounded-full px-6 py-3 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
-                            placeholder="Ask a doubt..."
-                            value={inputMessage}
-                            onChange={(e) => setInputMessage(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                            disabled={loading}
-                        />
-                        <button
-                            onClick={sendMessage}
-                            disabled={!inputMessage.trim() || loading}
-                            className="absolute right-2 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <Send size={18} />
-                        </button>
+           <div className="flex-1 overflow-hidden relative">
+              {activeTab === 'chat' && (
+                 <div className="flex flex-col h-full">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700">
+                       {messages.map((msg, idx) => (
+                          <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                             <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-200 border border-gray-700 rounded-bl-none'}`}>
+                                <div className="prose prose-invert prose-sm max-w-none"><ReactMarkdown>{msg.text}</ReactMarkdown></div>
+                             </div>
+                          </div>
+                       ))}
+                       {chatLoading && <div className="flex justify-start"><div className="bg-gray-800 text-gray-400 rounded-2xl px-5 py-3 rounded-bl-none border border-gray-700 animate-pulse flex items-center space-x-2"><Loader2 className="animate-spin" size={14}/> <span>Thinking...</span></div></div>}
+                       <div ref={chatEndRef} />
                     </div>
-                </div>
-            </>
-        )}
-
-        {/* Learn Tab */}
-        {activeTab === 'learn' && (
-          <div className="p-8 overflow-y-auto h-full">
-            <div className="prose prose-invert prose-lg max-w-none">
-                {content ? (
-                    <ReactMarkdown>{content}</ReactMarkdown>
-                ) : (
-                    !loading && <div className="text-center text-gray-500 py-20">Content failed to load. Try refreshing or check backend connection.</div>
-                )}
-            </div>
-          </div>
-        )}
-
-        {/* Quiz Tab */}
-        {activeTab === 'quiz' && (
-          <div className="p-8 overflow-y-auto h-full">
-            <div className="space-y-6 max-w-3xl mx-auto">
-                {questions.map((q, idx) => (
-                <div key={idx} className="bg-gray-800 p-6 rounded-lg border border-gray-700 shadow-md">
-                    <div className="flex justify-between mb-4">
-                        <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded
-                            ${q.difficulty === 'Easy' ? 'bg-green-900/30 text-green-400' :
-                            q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' :
-                            'bg-red-900/30 text-red-400'}`}>
-                            {q.difficulty}
-                        </span>
-                        <span className="text-gray-500 text-xs">Q{idx+1}</span>
+                    <div className="p-4 bg-gray-900 border-t border-gray-800">
+                       <div className="flex items-center justify-between mb-2 px-2">
+                          <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">{socraticMode ? 'Socratic Mode Active' : 'Standard Mode'}</span>
+                          <button onClick={() => setSocraticMode(!socraticMode)} className={`text-xs px-2 py-1 rounded border ${socraticMode ? 'bg-purple-900/30 border-purple-500 text-purple-400' : 'border-gray-700 text-gray-400 hover:text-white'}`}>Toggle Socratic</button>
+                       </div>
+                       <div className="relative">
+                          <input type="text" className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-500" placeholder={`Ask about ${decodedTopic}...`} value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} disabled={chatLoading} />
+                          <button onClick={sendMessage} disabled={!inputMessage.trim() || chatLoading} className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 text-white px-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"><Send size={18} /></button>
+                       </div>
                     </div>
-                    <h3 className="text-lg font-medium text-white mb-6 leading-relaxed">{q.question}</h3>
-                    <div className="grid grid-cols-1 gap-3 mb-6">
-                        {q.options.map(opt => (
-                        <button key={opt} className="text-left p-4 rounded-lg bg-gray-900 hover:bg-gray-750 transition-colors border border-gray-800 hover:border-blue-500/50 text-gray-300 hover:text-white">
-                            {opt}
-                        </button>
-                        ))}
-                    </div>
-                    <details className="text-sm text-gray-400 cursor-pointer group bg-gray-900/50 p-3 rounded border border-gray-800">
-                        <summary className="group-hover:text-blue-400 transition-colors list-none font-medium flex items-center justify-between">
-                            <span>Show Answer & Explanation</span>
-                            <span className="text-xs text-gray-600 group-hover:text-blue-500">▼</span>
-                        </summary>
-                        <div className="mt-3 pt-3 border-t border-gray-700 text-gray-300">
-                        <p className="font-bold text-green-400 mb-2">Correct Answer: {q.answer}</p>
-                        <p className="leading-relaxed">{q.explanation}</p>
-                        </div>
-                    </details>
-                </div>
-                ))}
-                {questions.length === 0 && !loading && (
-                    <div className="text-center text-gray-500 py-20 border-2 border-dashed border-gray-800 rounded-xl">
-                        No questions generated. Check if Ollama is running.
-                    </div>
-                )}
-            </div>
-          </div>
-        )}
-
-        {/* Visualize Tab */}
-        {activeTab === 'visualize' && (
-          <div className="p-8 h-full flex flex-col items-center justify-center overflow-y-auto">
-             {mermaidCode ? (
-               <div className="w-full bg-gray-950 rounded-lg border border-gray-800 p-6 shadow-xl overflow-x-auto flex justify-center">
-                 <MermaidChart code={mermaidCode} />
-               </div>
-             ) : (
-               !loading && <div className="text-center text-gray-500">Visualization unavailable.</div>
-             )}
-             {mermaidCode && (
-                 <div className="mt-8 w-full max-w-2xl">
-                     <h4 className="text-xs uppercase font-bold text-gray-500 mb-2">Mermaid Source</h4>
-                     <pre className="bg-black p-4 rounded border border-gray-800 text-green-500 text-xs font-mono overflow-auto max-h-40">{mermaidCode}</pre>
                  </div>
-             )}
-          </div>
+              )}
+
+              {activeTab === 'exam' && (
+                 <div className="p-6 overflow-y-auto h-full scrollbar-thin scrollbar-thumb-gray-700">
+                    <div className="flex justify-between items-center mb-6">
+                       <h2 className="text-xl font-bold text-white">Practice Questions</h2>
+                       <button onClick={handleGenerateQuestions} disabled={isGenerating} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20">{isGenerating ? <Loader2 className="animate-spin" size={18}/> : <BrainCircuit size={18}/>}<span>{isGenerating ? 'Generating...' : 'Generate New Set'}</span></button>
+                    </div>
+                    <div className="space-y-6">
+                       {topicQuestions.length === 0 ? (
+                          <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-xl bg-gray-900/50">
+                             <BrainCircuit size={48} className="mx-auto text-gray-600 mb-4"/>
+                             <p className="text-gray-400 mb-4">No questions generated yet.</p>
+                             <button onClick={handleGenerateQuestions} className="text-purple-400 hover:text-purple-300 font-medium">Start Generation</button>
+                          </div>
+                       ) : (
+                          topicQuestions.map((q, idx) => (
+                             <div key={idx} className="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-sm">
+                                <div className="flex justify-between mb-4">
+                                   <div className="flex items-center space-x-2">
+                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${q.type === 'NAT' ? 'bg-pink-900/30 text-pink-400' : q.type === 'MSQ' ? 'bg-orange-900/30 text-orange-400' : 'bg-blue-900/30 text-blue-400'}`}>{q.type}</span>
+                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${q.difficulty === 'Hard' ? 'bg-red-900/30 text-red-400' : q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-green-900/30 text-green-400'}`}>{q.difficulty}</span>
+                                   </div>
+                                   <span className="text-gray-500 text-xs font-mono">#{idx+1}</span>
+                                </div>
+                                <h3 className="text-lg font-medium text-white mb-6 leading-relaxed">{q.question}</h3>
+                                {q.type === 'NAT' ? (
+                                   <div className="mb-6 bg-pink-900/10 p-4 rounded-lg border border-pink-900/30">
+                                      <div className="flex items-center justify-between mb-3">
+                                         <label className="text-sm text-pink-300">Your Answer (Numerical):</label>
+                                         <div className="flex space-x-2">
+                                            <button onClick={() => { setShowSidePanel(true); setSidePanelTab('calculator'); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 flex items-center text-gray-300"><Calculator size={12} className="mr-1"/> Calculator</button>
+                                            <button onClick={() => { setShowSidePanel(true); setSidePanelTab('whiteboard'); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 flex items-center text-gray-300"><PenTool size={12} className="mr-1"/> Whiteboard</button>
+                                         </div>
+                                      </div>
+                                      <input type="text" placeholder="e.g. 42.5" className="bg-gray-900 border border-gray-700 rounded p-3 w-full max-w-xs text-white"/>
+                                   </div>
+                                ) : (
+                                   <div className="grid grid-cols-1 gap-2 mb-6">
+                                      {q.options.map((opt, i) => (
+                                         <div key={i} className="p-3 bg-gray-900 rounded border border-gray-800 hover:border-blue-500/50 cursor-pointer transition-colors text-gray-300 hover:text-white">{opt}</div>
+                                      ))}
+                                   </div>
+                                )}
+                                <details className="group">
+                                   <summary className="cursor-pointer text-sm text-gray-500 hover:text-blue-400 flex items-center space-x-2 select-none"><span>Reveal Solution</span><span className="group-open:rotate-180 transition-transform">▼</span></summary>
+                                   <div className="mt-4 pt-4 border-t border-gray-700 bg-gray-800/50 rounded p-4">
+                                      <p className="font-bold text-green-400 mb-2">Answer: {q.answer}</p>
+                                      <p className="text-gray-300 leading-relaxed text-sm">{q.explanation}</p>
+                                   </div>
+                                </details>
+                             </div>
+                          ))
+                       )}
+                    </div>
+                 </div>
+              )}
+
+              {activeTab === 'mistakes' && (
+                 <div className="p-6 overflow-y-auto h-full scrollbar-thin scrollbar-thumb-gray-700">
+                    <h2 className="text-xl font-bold text-white mb-6 flex items-center"><AlertTriangle className="mr-2 text-orange-500" size={24}/> Contextual Mistakes</h2>
+                    {loadingMistakes ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-500"/></div> : mistakes.length === 0 ? <div className="text-center py-20 text-gray-500 border-2 border-dashed border-gray-800 rounded-xl">No logged mistakes for this topic. Great job!</div> : <div className="space-y-4">{mistakes.map((m) => (<div key={m._id} className="bg-gray-800/50 border border-red-900/30 p-4 rounded-xl hover:border-red-500/30 transition-colors"><p className="font-medium text-white mb-2">{m.question}</p><div className="text-sm text-red-400 mb-1">Your Answer: {m.userAnswer}</div><div className="text-sm text-green-400">Correct: {m.correctAnswer}</div></div>))}</div>}
+                 </div>
+              )}
+           </div>
+        </div>
+
+        {/* Side Panel (Code, Whiteboard, Calculator) */}
+        {showSidePanel && (
+           <div className="w-96 bg-gray-900 rounded-xl border border-gray-800 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+              <div className="p-3 border-b border-gray-800 flex justify-between items-center bg-gray-850">
+                 <div className="flex space-x-1">
+                     <button onClick={() => setSidePanelTab('code')} className={`px-3 py-1 text-xs font-medium rounded ${sidePanelTab === 'code' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Code</button>
+                     <button onClick={() => setSidePanelTab('whiteboard')} className={`px-3 py-1 text-xs font-medium rounded ${sidePanelTab === 'whiteboard' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Board</button>
+                     <button onClick={() => setSidePanelTab('calculator')} className={`px-3 py-1 text-xs font-medium rounded ${sidePanelTab === 'calculator' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Calc</button>
+                 </div>
+                 <button onClick={() => setShowSidePanel(false)} className="text-gray-500 hover:text-white"><Minimize2 size={16}/></button>
+              </div>
+
+              <div className="flex-1 overflow-hidden">
+                  {sidePanelTab === 'code' && (
+                     <div className="h-full flex flex-col">
+                        <textarea className="flex-1 bg-gray-950 text-gray-300 p-4 font-mono text-sm resize-none focus:outline-none" spellCheck="false" value={scratchpadContent} onChange={(e) => setScratchpadContent(e.target.value)} />
+                        <div className="p-2 border-t border-gray-800 text-xs text-gray-600 text-right bg-gray-900">Supports C, SQL, Plain Text</div>
+                     </div>
+                  )}
+
+                  {sidePanelTab === 'whiteboard' && <DigitalWhiteboard />}
+
+                  {sidePanelTab === 'calculator' && <SimpleCalculator />}
+              </div>
+           </div>
         )}
       </div>
     </div>

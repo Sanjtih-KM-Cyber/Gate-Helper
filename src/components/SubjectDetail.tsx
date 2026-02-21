@@ -1,116 +1,164 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, BookOpen, Plus, Activity, BrainCircuit } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Circle, AlertTriangle, Activity, Loader2 } from 'lucide-react';
+
+interface Topic {
+  name: string;
+  status: 'Not Started' | 'In Progress' | 'Completed';
+  confidence: 'Red' | 'Yellow' | 'Green';
+}
+
+interface Unit {
+  title: string;
+  topics: Topic[];
+}
 
 interface Subject {
   _id: string;
   name: string;
-  topics: string[];
+  description: string;
+  category: string;
+  syllabus: Unit[];
 }
 
 export default function SubjectDetail() {
   const { id } = useParams<{ id: string }>();
   const [subject, setSubject] = useState<Subject | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [newTopic, setNewTopic] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchSubjectWithSyllabus();
+    fetchSubject();
   }, [id]);
 
-  const fetchSubjectWithSyllabus = async () => {
+  const fetchSubject = async () => {
     setLoading(true);
     try {
-      // First, try to get the subject normally
-      const res = await axios.get(`http://localhost:5000/api/subjects/${id}/syllabus`);
+      const res = await axios.get(`http://localhost:5000/api/subjects/${id}`);
       setSubject(res.data);
+
+      // If syllabus is empty, maybe trigger generation?
+      // Current flow: College Prep generates on upload. GATE Prep generates on creation.
+      // So syllabus should exist. If not, it might be in progress (but scraping is synchronous-ish in my implementation).
+      // Or maybe the scrape failed.
     } catch (err) {
       console.error(err);
-      // Fallback: If AI fails, try normal fetch
-      try {
-          const res = await axios.get(`http://localhost:5000/api/subjects/${id}`);
-          setSubject(res.data);
-      } catch (e) { console.error(e); }
+      setError('Failed to load subject details.');
     } finally {
       setLoading(false);
     }
   };
 
-  const addTopic = async () => {
-    if (!newTopic) return;
-    try {
-      await axios.post(`http://localhost:5000/api/subjects/${id}/topics`, { topic: newTopic });
-      setNewTopic('');
-      // Refresh just by appending locally to avoid full reload
-      if (subject) {
-          setSubject({ ...subject, topics: [...(subject.topics || []), newTopic] });
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   if (loading) {
-      return (
-          <div className="flex flex-col items-center justify-center h-96 text-gray-500 animate-pulse">
-              <BrainCircuit size={48} className="mb-4 text-blue-500" />
-              <p className="text-xl font-medium">Fetching syllabus from the web...</p>
-              <p className="text-sm mt-2">Consulting AI & Search Engine to structure your course.</p>
-          </div>
-      );
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <Loader2 className="animate-spin text-blue-500 mb-4" size={48} />
+        <p className="text-gray-400">Loading Syllabus...</p>
+      </div>
+    );
   }
 
-  if (!subject) return <div className="text-red-500">Subject not found.</div>;
+  if (error || !subject) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+        <AlertTriangle className="text-red-500 mb-4" size={48} />
+        <h2 className="text-2xl font-bold text-white mb-2">Error Loading Subject</h2>
+        <p className="text-gray-400 mb-6">{error || 'Subject not found.'}</p>
+        <Link to="/" className="text-blue-400 hover:text-blue-300 flex items-center">
+          <ArrowLeft className="mr-2" size={20} /> Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
+
+  // Calculate Progress
+  const totalTopics = subject.syllabus.reduce((acc, unit) => acc + unit.topics.length, 0);
+  const completedTopics = subject.syllabus.reduce((acc, unit) =>
+    acc + unit.topics.filter(t => t.status === 'Completed').length, 0
+  );
+  const progress = totalTopics === 0 ? 0 : Math.round((completedTopics / totalTopics) * 100);
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center space-x-4 mb-6">
-        <Link to="/subjects" className="text-gray-400 hover:text-white transition-colors">
-          <ArrowLeft size={24} />
-        </Link>
-        <h1 className="text-3xl font-bold text-white">{subject.name}</h1>
+    <div className="max-w-5xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+         <div className="flex items-center space-x-4">
+            <Link to={subject.category === 'College Prep' ? '/subjects/college-prep' : '/subjects/gate-prep'} className="text-gray-400 hover:text-white p-2 hover:bg-gray-800 rounded-full transition-colors">
+               <ArrowLeft size={24} />
+            </Link>
+            <div>
+               <h1 className="text-3xl font-bold text-white mb-1">{subject.name}</h1>
+               <p className="text-gray-400 text-sm flex items-center space-x-2">
+                 <span className="bg-gray-800 px-2 py-0.5 rounded text-gray-300">{subject.category}</span>
+                 <span>• {subject.syllabus.length} Units</span>
+                 <span>• {totalTopics} Topics</span>
+               </p>
+            </div>
+         </div>
+
+         <div className="text-right">
+            <div className="text-3xl font-bold text-blue-500">{progress}%</div>
+            <div className="text-gray-500 text-xs uppercase tracking-wider">Completion</div>
+         </div>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8">
-        <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
-          <h2 className="text-xl font-semibold text-gray-200 flex items-center">
-            <BookOpen size={20} className="mr-3 text-blue-500" />
-            Topic Roadmap
-          </h2>
-          <div className="flex space-x-2">
-             <input
-               type="text"
-               placeholder="Add Custom Topic..."
-               className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-white focus:outline-none focus:border-blue-500 placeholder-gray-500"
-               value={newTopic}
-               onChange={(e) => setNewTopic(e.target.value)}
-               onKeyDown={(e) => e.key === 'Enter' && addTopic()}
-             />
-             <button onClick={addTopic} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded transition-colors">
-               <Plus size={16} />
-             </button>
-          </div>
-        </div>
+      {/* Progress Bar */}
+      <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+         <div className="bg-blue-600 h-2 rounded-full transition-all duration-1000 ease-out" style={{ width: `${progress}%` }}></div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           {(subject.topics || []).map((topic, idx) => (
-             <Link
-               to={`/subject/${id}/topic/${encodeURIComponent(topic)}`}
-               key={idx}
-               className="group p-4 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 rounded-lg transition-all flex justify-between items-center"
-             >
-               <span className="font-medium text-gray-300 group-hover:text-white truncate pr-2" title={topic}>{topic}</span>
-               <Activity size={16} className="text-gray-600 group-hover:text-blue-400" />
-             </Link>
-           ))}
-           {(!subject.topics || subject.topics.length === 0) && (
-             <div className="col-span-full text-center py-10 text-gray-500 border-2 border-dashed border-gray-800 rounded-lg">
-               No topics found. Try refreshing to trigger AI generation again.
-             </div>
-           )}
-        </div>
+      {/* Syllabus List */}
+      <div className="space-y-6">
+         {subject.syllabus.length === 0 ? (
+            <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-xl">
+               <BookOpen className="mx-auto text-gray-600 mb-4" size={48}/>
+               <p className="text-gray-500">Syllabus is empty.</p>
+            </div>
+         ) : (
+            subject.syllabus.map((unit, unitIdx) => (
+               <div key={unitIdx} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                  <div className="bg-gray-850 px-6 py-4 border-b border-gray-800 flex justify-between items-center">
+                     <h2 className="text-lg font-bold text-white flex items-center">
+                        <span className="text-gray-500 mr-3 text-sm font-mono">UNIT {unitIdx + 1}</span>
+                        {unit.title}
+                     </h2>
+                     <span className="text-xs text-gray-500">{unit.topics.length} Topics</span>
+                  </div>
+
+                  <div className="divide-y divide-gray-800/50">
+                     {unit.topics.map((topic, topicIdx) => (
+                        <Link
+                           key={topicIdx}
+                           to={`/subject/${subject._id}/topic/${encodeURIComponent(topic.name)}`}
+                           className="flex items-center justify-between px-6 py-4 hover:bg-gray-800/50 transition-colors group cursor-pointer"
+                        >
+                           <div className="flex items-center space-x-4">
+                              <div className={`
+                                 w-2 h-2 rounded-full ring-2 ring-offset-2 ring-offset-gray-900
+                                 ${topic.confidence === 'Green' ? 'bg-green-500 ring-green-900' :
+                                   topic.confidence === 'Yellow' ? 'bg-yellow-500 ring-yellow-900' :
+                                   'bg-red-500 ring-red-900'}
+                              `} title={`Confidence: ${topic.confidence}`}></div>
+
+                              <span className={`text-gray-300 font-medium group-hover:text-white transition-colors ${topic.status === 'Completed' ? 'line-through text-gray-500' : ''}`}>
+                                 {topic.name}
+                              </span>
+                           </div>
+
+                           <div className="flex items-center space-x-4">
+                              {topic.status === 'Completed' && <CheckCircle size={18} className="text-green-500" />}
+                              {topic.status === 'In Progress' && <Activity size={18} className="text-blue-500" />}
+                              {topic.status === 'Not Started' && <Circle size={18} className="text-gray-600" />}
+
+                              <ArrowRight size={16} className="text-gray-600 group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-1" />
+                           </div>
+                        </Link>
+                     ))}
+                  </div>
+               </div>
+            ))
+         )}
       </div>
     </div>
   );
