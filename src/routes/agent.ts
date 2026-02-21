@@ -4,6 +4,7 @@ import { DuckDuckGoSearch } from '@langchain/community/tools/duckduckgo_search';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Settings } from '../models/Settings.ts';
 import { getRelevantContext } from '../utils/vectorStore.ts';
+import { execSync } from 'child_process';
 
 const router = express.Router();
 
@@ -47,6 +48,17 @@ function extractJSON(text: string): any {
       console.error("JSON Parse Failed on content:", cleanContent);
       throw e;
   }
+}
+
+// Helper: Verify Answer with Python
+function verifyAnswerWithPython(script: string): string | null {
+    try {
+        const output = execSync(`python3 -c "${script.replace(/"/g, '\\"')}"`, { timeout: 2000, encoding: 'utf-8' });
+        return output.trim();
+    } catch (e) {
+        console.warn("Python verification failed:", e);
+        return null;
+    }
 }
 
 // Generate Questions (Infinite Exam Engine)
@@ -96,6 +108,9 @@ router.post('/questions', async (req, res) => {
           Difficulty Levels: Easy, Medium, Hard, and Topper level.
           Exhaustive: Must cover every mathematical and theoretical sub-concept in the provided topic context.
 
+          For NAT or calculation-heavy questions, YOU MUST PROVIDE a "verification_script" field containing a small valid Python script that prints the result.
+          Example: "verification_script": "print(2**10)"
+
           Strict JSON Format:
           [
             {
@@ -104,14 +119,15 @@ router.post('/questions', async (req, res) => {
               "options": ["A", "B", "C", "D"], // Empty for NAT
               "answer": "Correct Answer",
               "explanation": "Detailed solution...",
-              "difficulty": "Easy" | "Medium" | "Hard" | "Topper"
+              "difficulty": "Easy" | "Medium" | "Hard" | "Topper",
+              "verification_script": "print(...)" // Optional, for math checks
             }
           ]
         `;
     }
 
     const systemPrompt = await getSystemPrompt(systemInstruction);
-    const prompt = `
+    let prompt = `
       Topic: ${topic}
 
       Syllabus Context:
@@ -128,18 +144,59 @@ router.post('/questions', async (req, res) => {
       IMPORTANT: You MUST output ONLY valid JSON. Every key and every string MUST be enclosed in double quotes. Do not output markdown backticks.
     `;
 
-    const response = await llm.invoke([
+    // First Pass Generation
+    let response = await llm.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(prompt)
     ]);
 
-    let questions;
+    let questions = [];
     try {
       questions = extractJSON(response.content.toString());
       if (!Array.isArray(questions)) questions = [];
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
       questions = [];
+    }
+
+    // Python Verification Step
+    if (prepType === 'GATE' && questions.length > 0) {
+        let correctionsNeeded = false;
+        let correctionPrompt = "The following questions had incorrect answers based on Python verification:\n";
+
+        for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+            if (q.verification_script) {
+                const pyResult = verifyAnswerWithPython(q.verification_script);
+                if (pyResult !== null && pyResult !== q.answer) {
+                    console.log(`Mismatch detected for Q${i+1}: LLM=${q.answer}, Python=${pyResult}`);
+                    correctionsNeeded = true;
+                    correctionPrompt += `Question ${i+1}: Your answer was "${q.answer}", but Python verification script output "${pyResult}". Please correct the answer or the script.\n`;
+                    // Optimistically update the answer if simple enough, but better to ask LLM to reconcile
+                    // For speed, let's mark it for regeneration or update hint.
+                    // The instruction said: "Automatically send the Python result back to the LLM as a Correction prompt"
+                }
+            }
+        }
+
+        if (correctionsNeeded) {
+            console.log("Triggering LLM Correction Loop...");
+            const correctionResponse = await llm.invoke([
+                new SystemMessage(systemPrompt),
+                new HumanMessage(prompt), // Original context
+                new SystemMessage("Your previous output had mathematical errors. Fix them based on the Python verification results below."),
+                new HumanMessage(correctionPrompt + "\nRegenerate the COMPLETE JSON array with corrected answers.")
+            ]);
+
+            try {
+                const correctedQuestions = extractJSON(correctionResponse.content.toString());
+                if (Array.isArray(correctedQuestions) && correctedQuestions.length > 0) {
+                    questions = correctedQuestions;
+                }
+            } catch (e) {
+                console.error("Failed to parse corrected JSON. Keeping original.");
+            }
+        }
     }
 
     res.json({ topic, questions });
