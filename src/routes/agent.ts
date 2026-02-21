@@ -6,6 +6,7 @@ import { Settings } from '../models/Settings.ts';
 import { getRelevantContext } from '../utils/vectorStore.ts';
 import { execSync } from 'child_process';
 import axios from 'axios';
+import { jsonrepair } from 'jsonrepair';
 
 const router = express.Router();
 
@@ -13,7 +14,8 @@ const router = express.Router();
 const llm = new ChatOllama({
   model: 'llama3.2',
   baseUrl: 'http://localhost:11434',
-  temperature: 0.7,
+  temperature: 0, // Zero temperature to reduce hallucinations
+  format: 'json', // Enforce JSON output mode
 });
 
 // Code Assistant Model (Qwen)
@@ -37,20 +39,23 @@ async function getSystemPrompt(baseInstruction: string) {
   return `You are an expert GATE exam tutor.\n\n${baseInstruction}`;
 }
 
-// Helper: Robust JSON Extractor
+// Helper: Robust JSON Extractor using jsonrepair
 function extractJSON(text: string): any {
   let cleanContent = text.trim();
+  // Strip markdown code blocks if present
   if (cleanContent.startsWith('```json')) {
       cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
   } else if (cleanContent.startsWith('```')) {
       cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
   }
-  cleanContent = cleanContent.replace(/,\s*([\]}])/g, '$1');
+
   try {
-      return JSON.parse(cleanContent);
+      // Use jsonrepair to fix common issues (missing quotes, trailing commas, etc.)
+      const repaired = jsonrepair(cleanContent);
+      return JSON.parse(repaired);
   } catch (e) {
-      console.error("JSON Parse Failed on content:", cleanContent);
-      throw e;
+      console.error("JSON Repair/Parse Failed on content:", cleanContent);
+      return []; // Return empty array as safe fallback
   }
 }
 
@@ -118,9 +123,6 @@ router.post('/lab-assist', async (req, res) => {
   }
 });
 
-// ... [Existing routes: questions, visualize, chat, explain, pyq] ...
-// (Retaining existing code below for brevity in diff application, but writing full file content)
-
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
   try {
@@ -161,26 +163,26 @@ router.post('/questions', async (req, res) => {
           ]
         `;
     } else {
-        // GATE Default
-        systemInstruction = "You are an exhaustive GATE exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Formats MUST be MCQ, MSQ, and NAT. Classify each by difficulty: Easy, Medium, Hard, and Topper. Do not stop until all mathematical and theoretical sub-concepts are covered.";
+        // GATE Default - Updated for Harder Questions & Strict Format
+        systemInstruction = "You are an exhaustive GATE exam generator. You create challenging, exam-level questions that test deep conceptual understanding and problem-solving skills.";
         formatInstruction = `
-          Must generate: MCQ (Multiple Choice), MSQ (Multiple Select), and NAT (Numerical Answer Type).
-          Difficulty Levels: Easy, Medium, Hard, and Topper level.
-          Exhaustive: Must cover every mathematical and theoretical sub-concept in the provided topic context.
+          MANDATORY REQUIREMENTS:
+          1. **MCQ**: Must test deep conceptual clarity. Options should be confusing and closely related.
+          2. **MSQ**: 1 to 4 options can be correct. Requires evaluating every option independently.
+          3. **NAT**: Must require actual mathematical calculation or algorithm tracing. 'answer' must be a strict numerical value (e.g., "42", "3.14").
+          4. **Difficulty**: Default baseline is 'Hard' or 'GATE Level'. Do not generate trivial questions.
+          5. **Format**: Return ONLY valid JSON matching the template below. DO NOT include any conversational text.
 
-          For NAT or calculation-heavy questions, YOU MUST PROVIDE a "verification_script" field containing a small valid Python script that prints the result.
-          Example: "verification_script": "print(2**10)"
-
-          Strict JSON Format:
+          Strict JSON Template:
           [
             {
               "type": "MCQ" | "MSQ" | "NAT",
-              "question": "Question text...",
-              "options": ["A", "B", "C", "D"], // Empty for NAT
+              "question": "Complex question text...",
+              "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"], // Required for MCQ/MSQ, Empty for NAT
               "answer": "Correct Answer",
-              "explanation": "Detailed solution...",
-              "difficulty": "Easy" | "Medium" | "Hard" | "Topper",
-              "verification_script": "print(...)" // Optional, for math checks
+              "explanation": "Detailed step-by-step solution...",
+              "difficulty": "Hard" | "GATE Level" | "Topper",
+              "verification_script": "print(2**10)" // Optional Python script for math checks
             }
           ]
         `;
@@ -198,7 +200,7 @@ router.post('/questions', async (req, res) => {
       ${searchResults}
 
       Task:
-      Generate ${count} distinct questions for "${topic}".
+      Generate ${count} distinct, high-quality questions for "${topic}".
       ${formatInstruction}
 
       IMPORTANT: You MUST output ONLY valid JSON. Every key and every string MUST be enclosed in double quotes. Do not output markdown backticks.
@@ -211,13 +213,8 @@ router.post('/questions', async (req, res) => {
     ]);
 
     let questions = [];
-    try {
-      questions = extractJSON(response.content.toString());
-      if (!Array.isArray(questions)) questions = [];
-    } catch (parseError) {
-      console.error('JSON Parse Error:', parseError);
-      questions = [];
-    }
+    questions = extractJSON(response.content.toString());
+    if (!Array.isArray(questions)) questions = [];
 
     // Python Verification Step
     if (prepType === 'GATE' && questions.length > 0) {
@@ -245,13 +242,9 @@ router.post('/questions', async (req, res) => {
                 new HumanMessage(correctionPrompt + "\nRegenerate the COMPLETE JSON array with corrected answers.")
             ]);
 
-            try {
-                const correctedQuestions = extractJSON(correctionResponse.content.toString());
-                if (Array.isArray(correctedQuestions) && correctedQuestions.length > 0) {
-                    questions = correctedQuestions;
-                }
-            } catch (e) {
-                console.error("Failed to parse corrected JSON. Keeping original.");
+            const correctedQuestions = extractJSON(correctionResponse.content.toString());
+            if (Array.isArray(correctedQuestions) && correctedQuestions.length > 0) {
+                questions = correctedQuestions;
             }
         }
     }
@@ -310,13 +303,9 @@ router.post('/pyq', async (req, res) => {
     ]);
 
     let questions = [];
-    try {
-        const json = extractJSON(response.content.toString());
-        if (json && Array.isArray(json.questions)) {
-            questions = json.questions;
-        }
-    } catch (e) {
-        console.error("PYQ Parsing Failed", e);
+    const json = extractJSON(response.content.toString());
+    if (json && Array.isArray(json.questions)) {
+        questions = json.questions;
     }
 
     res.json({ questions });
