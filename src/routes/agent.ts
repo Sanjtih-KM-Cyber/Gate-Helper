@@ -5,6 +5,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Settings } from '../models/Settings.ts';
 import { getRelevantContext } from '../utils/vectorStore.ts';
 import { execSync } from 'child_process';
+import axios from 'axios';
 
 const router = express.Router();
 
@@ -172,9 +173,6 @@ router.post('/questions', async (req, res) => {
                     console.log(`Mismatch detected for Q${i+1}: LLM=${q.answer}, Python=${pyResult}`);
                     correctionsNeeded = true;
                     correctionPrompt += `Question ${i+1}: Your answer was "${q.answer}", but Python verification script output "${pyResult}". Please correct the answer or the script.\n`;
-                    // Optimistically update the answer if simple enough, but better to ask LLM to reconcile
-                    // For speed, let's mark it for regeneration or update hint.
-                    // The instruction said: "Automatically send the Python result back to the LLM as a Correction prompt"
                 }
             }
         }
@@ -204,6 +202,69 @@ router.post('/questions', async (req, res) => {
   } catch (error: any) {
     console.error('Question Generation Error:', error);
     res.status(500).json({ error: 'Failed to generate questions. Ensure Ollama is running.' });
+  }
+});
+
+// Fetch Real PYQs (Tavily)
+router.post('/pyq', async (req, res) => {
+  try {
+    const { topic } = req.body;
+    if (!topic) return res.status(400).json({ error: 'Topic is required' });
+
+    const apiKey = process.env.TAVILY_API_KEY;
+    if (!apiKey) throw new Error("TAVILY_API_KEY not found");
+
+    const query = `GATE CSE previous year questions and solutions for ${topic} site:gateoverflow.in OR site:geeksforgeeks.org`;
+    console.log(`Fetching PYQs via Tavily: ${query}`);
+
+    let combinedContent = "";
+    try {
+        const tavilyResponse = await axios.post('https://api.tavily.com/search', {
+            api_key: apiKey,
+            query: query,
+            search_depth: "advanced",
+            include_raw_content: true,
+            max_results: 5
+        });
+
+        if (tavilyResponse.data.results) {
+            combinedContent = tavilyResponse.data.results.map((r: any) => r.raw_content || r.content).join('\n\n');
+        }
+    } catch (e) {
+        console.warn("Tavily search failed", e);
+        return res.json({ questions: [] }); // Fail gracefully
+    }
+
+    if (!combinedContent) return res.json({ questions: [] });
+
+    const systemPrompt = "You are a strict GATE exam parser. Scan the provided search text and extract ALL actual Previous Year Questions (PYQs). Max limit: 15 questions. Prioritize a mix of MCQ, MSQ, and NAT if they exist in the text.\nCRITICAL INSTRUCTION: DO NOT invent or hallucinate questions to hit a quota. If the text only contains 3 real PYQs, output exactly 3. If none exist, output an empty array.";
+    const prompt = `
+        Search Text:
+        ${combinedContent.substring(0, 20000)}
+
+        Format exactly into this JSON schema: { "questions": [ { "question": "[Year] The exact question text", "type": "MCQ/MSQ/NAT", "marks": 1 or 2, "difficulty": "Hard", "answer": "The step-by-step solution" } ] }. Output ONLY valid JSON.
+    `;
+
+    const response = await llm.invoke([
+        new SystemMessage(systemPrompt),
+        new HumanMessage(prompt)
+    ]);
+
+    let questions = [];
+    try {
+        const json = extractJSON(response.content.toString());
+        if (json && Array.isArray(json.questions)) {
+            questions = json.questions;
+        }
+    } catch (e) {
+        console.error("PYQ Parsing Failed", e);
+    }
+
+    res.json({ questions });
+
+  } catch (error: any) {
+    console.error('PYQ Fetch Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

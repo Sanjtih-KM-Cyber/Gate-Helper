@@ -5,7 +5,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, MessageSquare, AlertTriangle, Code, BrainCircuit,
   Send, CheckCircle, HelpCircle, Activity,
-  Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2
+  Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2, Download, Bookmark, Globe
 } from 'lucide-react';
 import { useGlobalTask, Question } from '../context/GlobalTaskManager';
 
@@ -182,6 +182,11 @@ export default function TopicStudio() {
   const [mistakes, setMistakes] = useState<Mistake[]>([]);
   const [loadingMistakes, setLoadingMistakes] = useState(false);
 
+  // New State for Features
+  const [savedQuestionIds, setSavedQuestionIds] = useState<string[]>([]);
+  const [fetchingPYQ, setFetchingPYQ] = useState(false);
+  const [realPYQs, setRealPYQs] = useState<any[]>([]);
+
   const { generatedQuestions, startQuestionGeneration, isGenerating } = useGlobalTask();
   const topicQuestions = generatedQuestions[decodedTopic] || [];
 
@@ -201,7 +206,7 @@ export default function TopicStudio() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, realPYQs]);
 
   // Save Chat History on Update
   useEffect(() => {
@@ -303,6 +308,106 @@ export default function TopicStudio() {
     startQuestionGeneration(decodedTopic, 5, [], prepType);
   };
 
+  const handleFetchPYQ = async () => {
+      setFetchingPYQ(true);
+      try {
+          const res = await axios.post('http://localhost:5000/api/agent/pyq', { topic: decodedTopic });
+          if (res.data.questions) {
+              setRealPYQs(prev => [...prev, ...res.data.questions]);
+              setMessages(prev => [...prev, { sender: 'ai', text: `I found ${res.data.questions.length} real PYQs for you. Check below.` }]);
+          }
+      } catch (err) {
+          console.error("PYQ Fetch Error", err);
+      } finally {
+          setFetchingPYQ(false);
+      }
+  };
+
+  const handleSaveToVault = async (questionData: any) => {
+      const qId = questionData.question; // Simple unique check
+      if (savedQuestionIds.includes(qId)) return;
+
+      try {
+          await axios.post('http://localhost:5000/api/vault/save', {
+              question: questionData.question,
+              answer: questionData.answer,
+              subjectId,
+              topicName: decodedTopic,
+              difficulty: questionData.difficulty || 'Unknown'
+          });
+          setSavedQuestionIds(prev => [...prev, qId]);
+          // Could add toast here
+      } catch (err) {
+          console.error("Save Failed", err);
+      }
+  };
+
+  // Helper to render question card (used for both generated and PYQ)
+  const renderQuestionCard = (q: any, idx: number, isReal: boolean) => (
+    <div key={idx} className={`bg-gray-800 border ${isReal ? 'border-green-600/50' : 'border-gray-700'} rounded-xl p-6 shadow-sm mb-4 relative`}>
+        {isReal && (
+            <div className="absolute top-0 right-0 bg-green-600 text-white text-[10px] px-2 py-1 rounded-bl-lg rounded-tr-lg font-bold uppercase tracking-wider">
+                Real GATE PYQ
+            </div>
+        )}
+
+        <div className="flex justify-between mb-4">
+            <div className="flex items-center space-x-2">
+                <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
+                    q.type === 'NAT' || q.type === '2-mark' ? 'bg-pink-900/30 text-pink-400' :
+                    q.type === 'MSQ' || q.type === '5-mark' ? 'bg-orange-900/30 text-orange-400' :
+                    'bg-blue-900/30 text-blue-400'
+                }`}>{q.type}</span>
+                <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
+                    q.difficulty === 'Hard' ? 'bg-red-900/30 text-red-400' :
+                    q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' :
+                    'bg-green-900/30 text-green-400'
+                }`}>{q.difficulty}</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+                <button
+                    onClick={() => handleSaveToVault(q)}
+                    className={`p-1.5 rounded transition-colors ${savedQuestionIds.includes(q.question) ? 'text-green-500 bg-green-900/20' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                    disabled={savedQuestionIds.includes(q.question)}
+                    title="Save to Vault"
+                >
+                    <Bookmark size={18} fill={savedQuestionIds.includes(q.question) ? "currentColor" : "none"}/>
+                </button>
+                <span className="text-gray-500 text-xs font-mono">#{idx+1}</span>
+            </div>
+        </div>
+
+        <h3 className="text-lg font-medium text-white mb-6 leading-relaxed">{q.question}</h3>
+
+        {q.type === 'NAT' ? (
+            <div className="mb-6 bg-pink-900/10 p-4 rounded-lg border border-pink-900/30">
+                <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm text-pink-300">Your Answer (Numerical):</label>
+                    <div className="flex space-x-2">
+                        <button onClick={() => { setShowSidePanel(true); setSidePanelTab('calculator'); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 flex items-center text-gray-300"><Calculator size={12} className="mr-1"/> Calculator</button>
+                    </div>
+                </div>
+                <input type="text" placeholder="e.g. 42.5" className="bg-gray-900 border border-gray-700 rounded p-3 w-full max-w-xs text-white"/>
+            </div>
+        ) : (
+            <div className="grid grid-cols-1 gap-2 mb-6">
+                {q.options && q.options.map((opt: string, i: number) => (
+                    <div key={i} className="p-3 bg-gray-900 rounded border border-gray-800 hover:border-blue-500/50 cursor-pointer transition-colors text-gray-300 hover:text-white">{opt}</div>
+                ))}
+            </div>
+        )}
+
+        <details className="group">
+            <summary className="cursor-pointer text-sm text-gray-500 hover:text-blue-400 flex items-center space-x-2 select-none"><span>Reveal Solution</span><span className="group-open:rotate-180 transition-transform">▼</span></summary>
+            <div className="mt-4 pt-4 border-t border-gray-700 bg-gray-800/50 rounded p-4">
+                <p className="font-bold text-green-400 mb-2">Answer: {q.answer}</p>
+                <p className="text-gray-300 leading-relaxed text-sm">{q.explanation}</p>
+            </div>
+        </details>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] bg-gray-950 overflow-hidden">
       {/* Header */}
@@ -374,6 +479,15 @@ export default function TopicStudio() {
               {activeTab === 'chat' && (
                  <div className="flex flex-col h-full">
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700">
+                       {/* Real PYQs (if any) */}
+                       {realPYQs.length > 0 && (
+                           <div className="mb-6 border-b border-gray-800 pb-4">
+                               <h4 className="text-xs font-bold text-green-500 uppercase mb-4 flex items-center"><Globe size={14} className="mr-2"/> Real GATE PYQs</h4>
+                               {realPYQs.map((q, idx) => renderQuestionCard(q, idx, true))}
+                           </div>
+                       )}
+
+                       {/* Chat Messages */}
                        {messages.map((msg, idx) => (
                           <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                              <div className={`max-w-[85%] rounded-2xl px-5 py-3 shadow-sm ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-200 border border-gray-700 rounded-bl-none'}`}>
@@ -384,10 +498,20 @@ export default function TopicStudio() {
                        {chatLoading && <div className="flex justify-start"><div className="bg-gray-800 text-gray-400 rounded-2xl px-5 py-3 rounded-bl-none border border-gray-700 animate-pulse flex items-center space-x-2"><Loader2 className="animate-spin" size={14}/> <span>Thinking...</span></div></div>}
                        <div ref={chatEndRef} />
                     </div>
+
                     <div className="p-4 bg-gray-900 border-t border-gray-800">
                        <div className="flex items-center justify-between mb-2 px-2">
-                          <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">{socraticMode ? 'Socratic Mode Active' : 'Standard Mode'}</span>
-                          <button onClick={() => setSocraticMode(!socraticMode)} className={`text-xs px-2 py-1 rounded border ${socraticMode ? 'bg-purple-900/30 border-purple-500 text-purple-400' : 'border-gray-700 text-gray-400 hover:text-white'}`}>Toggle Socratic</button>
+                          <div className="flex space-x-2">
+                              <span className="text-xs text-gray-500 font-medium uppercase tracking-wider flex items-center">{socraticMode ? 'Socratic Mode Active' : 'Standard Mode'}</span>
+                              <button onClick={() => setSocraticMode(!socraticMode)} className={`text-xs px-2 py-1 rounded border ${socraticMode ? 'bg-purple-900/30 border-purple-500 text-purple-400' : 'border-gray-700 text-gray-400 hover:text-white'}`}>Toggle</button>
+                          </div>
+                          <button
+                              onClick={handleFetchPYQ}
+                              disabled={fetchingPYQ}
+                              className="text-xs bg-green-900/30 border border-green-700 text-green-400 hover:bg-green-900/50 px-3 py-1 rounded flex items-center transition-colors disabled:opacity-50"
+                          >
+                              {fetchingPYQ ? <Loader2 size={12} className="animate-spin mr-1"/> : <Globe size={12} className="mr-1"/>} Fetch Real PYQs
+                          </button>
                        </div>
                        <div className="relative">
                           <textarea
@@ -425,51 +549,7 @@ export default function TopicStudio() {
                              <button onClick={handleGenerateQuestions} className="text-purple-400 hover:text-purple-300 font-medium">Start Generation</button>
                           </div>
                        ) : (
-                          topicQuestions.map((q, idx) => (
-                             <div key={idx} className="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-sm">
-                                <div className="flex justify-between mb-4">
-                                   <div className="flex items-center space-x-2">
-                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
-                                         q.type === 'NAT' || q.type === '2-mark' ? 'bg-pink-900/30 text-pink-400' :
-                                         q.type === 'MSQ' || q.type === '5-mark' ? 'bg-orange-900/30 text-orange-400' :
-                                         'bg-blue-900/30 text-blue-400'
-                                      }`}>{q.type}</span>
-                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
-                                         q.difficulty === 'Hard' ? 'bg-red-900/30 text-red-400' :
-                                         q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' :
-                                         'bg-green-900/30 text-green-400'
-                                      }`}>{q.difficulty}</span>
-                                   </div>
-                                   <span className="text-gray-500 text-xs font-mono">#{idx+1}</span>
-                                </div>
-                                <h3 className="text-lg font-medium text-white mb-6 leading-relaxed">{q.question}</h3>
-                                {q.type === 'NAT' ? (
-                                   <div className="mb-6 bg-pink-900/10 p-4 rounded-lg border border-pink-900/30">
-                                      <div className="flex items-center justify-between mb-3">
-                                         <label className="text-sm text-pink-300">Your Answer (Numerical):</label>
-                                         <div className="flex space-x-2">
-                                            <button onClick={() => { setShowSidePanel(true); setSidePanelTab('calculator'); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 flex items-center text-gray-300"><Calculator size={12} className="mr-1"/> Calculator</button>
-                                            <button onClick={() => { setShowSidePanel(true); setSidePanelTab('whiteboard'); }} className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 flex items-center text-gray-300"><PenTool size={12} className="mr-1"/> Whiteboard</button>
-                                         </div>
-                                      </div>
-                                      <input type="text" placeholder="e.g. 42.5" className="bg-gray-900 border border-gray-700 rounded p-3 w-full max-w-xs text-white"/>
-                                   </div>
-                                ) : (
-                                   <div className="grid grid-cols-1 gap-2 mb-6">
-                                      {q.options && q.options.map((opt, i) => (
-                                         <div key={i} className="p-3 bg-gray-900 rounded border border-gray-800 hover:border-blue-500/50 cursor-pointer transition-colors text-gray-300 hover:text-white">{opt}</div>
-                                      ))}
-                                   </div>
-                                )}
-                                <details className="group">
-                                   <summary className="cursor-pointer text-sm text-gray-500 hover:text-blue-400 flex items-center space-x-2 select-none"><span>Reveal Solution</span><span className="group-open:rotate-180 transition-transform">▼</span></summary>
-                                   <div className="mt-4 pt-4 border-t border-gray-700 bg-gray-800/50 rounded p-4">
-                                      <p className="font-bold text-green-400 mb-2">Answer: {q.answer}</p>
-                                      <p className="text-gray-300 leading-relaxed text-sm">{q.explanation}</p>
-                                   </div>
-                                </details>
-                             </div>
-                          ))
+                          topicQuestions.map((q, idx) => renderQuestionCard(q, idx, false))
                        )}
                     </div>
                  </div>

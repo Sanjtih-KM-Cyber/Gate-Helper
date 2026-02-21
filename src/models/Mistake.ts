@@ -7,6 +7,7 @@ const MistakeSchema = new mongoose.Schema({
   userAnswer: { type: String },
   correctAnswer: { type: String, required: true },
   explanation: { type: String }, // AI explanation
+  difficulty: { type: String },
   tags: [String],
   createdAt: { type: Date, default: Date.now }
 });
