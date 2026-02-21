@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import mermaid from 'mermaid';
-import { Search, Activity, ZoomIn, ZoomOut, Download } from 'lucide-react';
+import { Search, Activity, ZoomIn, ZoomOut, Download, AlertTriangle } from 'lucide-react';
 
 mermaid.initialize({
   startOnLoad: true,
@@ -11,23 +11,45 @@ mermaid.initialize({
 
 function MermaidChart({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const renderChart = async () => {
+      setError(null);
       if (containerRef.current && code) {
         try {
+            // Check for obviously bad syntax before trying to render
+            if (code.includes('->>')) {
+                 throw new Error("Invalid arrow syntax '->>' detected. Please regenerate.");
+            }
+
             containerRef.current.innerHTML = '';
             const id = `mermaid-${Date.now()}`;
+            // mermaid.render can throw if syntax is invalid
             const { svg } = await mermaid.render(id, code);
             containerRef.current.innerHTML = svg;
-        } catch (error) {
-            console.error('Mermaid render error', error);
-            containerRef.current.innerHTML = '<div class="text-red-400 p-4">Failed to render diagram. Syntax error.</div>';
+        } catch (err: any) {
+            console.error('Mermaid render error', err);
+            setError(err.message || 'Syntax Error');
+            containerRef.current.innerHTML = ''; // Clear container
         }
       }
     };
     renderChart();
   }, [code]);
+
+  if (error) {
+      return (
+          <div className="flex flex-col items-center justify-center p-8 bg-red-900/20 border border-red-800 rounded-lg h-[300px]">
+              <AlertTriangle className="text-red-500 mb-2" size={32} />
+              <p className="text-red-400 font-bold mb-1">Visualization Failed</p>
+              <p className="text-red-300/80 text-sm text-center max-w-md">
+                  The AI generated invalid diagram syntax ({error}).
+                  <br/>Please try clicking "Visualize" again.
+              </p>
+          </div>
+      );
+  }
 
   return <div ref={containerRef} className="overflow-x-auto flex justify-center p-4 bg-gray-800 rounded-lg min-h-[300px] items-center" />;
 }

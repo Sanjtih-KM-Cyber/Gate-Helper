@@ -121,8 +121,14 @@ router.post('/visualize', async (req, res) => {
 
       Create a Mermaid.js flowchart to explain the concept: "${concept}".
       Use the context to add specific details if available.
+
+      IMPORTANT SYNTAX RULES:
+      1. Use ONLY standard arrow syntax: A --> B
+      2. DO NOT use ->> or -->> (these cause render errors).
+      3. Start with 'graph TD' or 'graph LR'.
+      4. Avoid special characters in node names unless wrapped in quotes (e.g. A["Node Name"]).
+
       Return ONLY the valid Mermaid code. Do not include markdown backticks.
-      Start with 'graph TD' or 'sequenceDiagram' etc.
     `;
 
     const response = await llm.invoke([

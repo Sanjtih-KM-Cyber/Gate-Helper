@@ -2,9 +2,11 @@ import express from 'express';
 import { Subject } from '../models/Subject.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { DuckDuckGoSearch } from '@langchain/community/tools/duckduckgo_search';
 
 const router = express.Router();
 const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.7 });
+const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
 
 router.get('/', async (req, res) => {
   try {
@@ -25,7 +27,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /:id/syllabus - Fetches or Generates Syllabus
+// GET /:id/syllabus - Fetches or Generates Syllabus using Web Search + AI
 router.get('/:id/syllabus', async (req, res) => {
   try {
     const subject = await Subject.findById(req.params.id);
@@ -36,11 +38,21 @@ router.get('/:id/syllabus', async (req, res) => {
       return res.json(subject);
     }
 
-    // If no topics, generate them using AI
-    console.log(`Generating syllabus for ${subject.name}...`);
+    console.log(`Searching web for syllabus of: ${subject.name}...`);
+    let searchResults = '';
+    try {
+      searchResults = await searchTool.invoke(`GATE Computer Science syllabus for ${subject.name} topics units`);
+    } catch (searchError) {
+      console.error('Search failed:', searchError);
+      searchResults = 'Search unavailable. Relying on internal knowledge.';
+    }
 
     const prompt = `
-      Create a comprehensive syllabus for the subject: "${subject.name}" for the GATE Computer Science exam.
+      Context from Web Search:
+      ${searchResults}
+
+      Task:
+      Create a comprehensive syllabus for the subject: "${subject.name}" for the GATE Computer Science exam based on the search results.
       Break it down into 8-12 key topics or units.
       Return ONLY a JSON array of strings, where each string is a topic name.
       Example: ["Propositional Logic", "Graph Theory", "Set Theory"]

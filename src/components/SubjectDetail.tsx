@@ -45,7 +45,7 @@ export default function SubjectDetail() {
       setNewTopic('');
       // Refresh just by appending locally to avoid full reload
       if (subject) {
-          setSubject({ ...subject, topics: [...subject.topics, newTopic] });
+          setSubject({ ...subject, topics: [...(subject.topics || []), newTopic] });
       }
     } catch (err) {
       console.error(err);
@@ -56,8 +56,8 @@ export default function SubjectDetail() {
       return (
           <div className="flex flex-col items-center justify-center h-96 text-gray-500 animate-pulse">
               <BrainCircuit size={48} className="mb-4 text-blue-500" />
-              <p className="text-xl font-medium">Analyzing Subject & Generating Syllabus...</p>
-              <p className="text-sm mt-2">This might take a moment with local AI.</p>
+              <p className="text-xl font-medium">Fetching syllabus from the web...</p>
+              <p className="text-sm mt-2">Consulting AI & Search Engine to structure your course.</p>
           </div>
       );
   }
@@ -95,7 +95,7 @@ export default function SubjectDetail() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           {subject.topics.map((topic, idx) => (
+           {(subject.topics || []).map((topic, idx) => (
              <Link
                to={`/subject/${id}/topic/${encodeURIComponent(topic)}`}
                key={idx}
@@ -105,7 +105,7 @@ export default function SubjectDetail() {
                <Activity size={16} className="text-gray-600 group-hover:text-blue-400" />
              </Link>
            ))}
-           {subject.topics.length === 0 && (
+           {(!subject.topics || subject.topics.length === 0) && (
              <div className="col-span-full text-center py-10 text-gray-500 border-2 border-dashed border-gray-800 rounded-lg">
                No topics found. Try refreshing to trigger AI generation again.
              </div>
