@@ -2,12 +2,12 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 import axios from 'axios';
 
 export interface Question {
-  type: 'MCQ' | 'MSQ' | 'NAT';
+  type: 'MCQ' | 'MSQ' | 'NAT' | '2-mark' | '5-mark' | '8-mark';
   question: string;
-  options: string[];
+  options?: string[];
   answer: string;
-  explanation: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
+  explanation?: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard' | 'Topper';
 }
 
 interface Task {
@@ -21,7 +21,7 @@ interface Task {
 interface GlobalTaskContextType {
   tasks: Task[];
   generatedQuestions: Record<string, Question[]>; // Map topic -> questions
-  startQuestionGeneration: (topic: string, count?: number, types?: string[]) => Promise<void>;
+  startQuestionGeneration: (topic: string, count?: number, types?: string[], prepType?: string) => Promise<void>;
   isGenerating: boolean;
   clearQuestions: (topic: string) => void;
 }
@@ -42,21 +42,18 @@ export function GlobalTaskProvider({ children }: { children: ReactNode }) {
 
   const isGenerating = tasks.some(t => t.status === 'pending');
 
-  const startQuestionGeneration = async (topic: string, count: number = 5, types: string[] = ['MCQ', 'MSQ', 'NAT']) => {
+  const startQuestionGeneration = async (topic: string, count: number = 5, types: string[] = ['MCQ', 'MSQ', 'NAT'], prepType: string = 'GATE') => {
     const taskId = Math.random().toString(36).substring(7);
     const newTask: Task = { id: taskId, type: 'QUESTION_GEN', status: 'pending', topic, timestamp: Date.now() };
 
     setTasks(prev => [...prev, newTask]);
 
     try {
-      // Non-blocking request? No, we await it here but the UI component that calls this
-      // can choose to not await or just rely on state updates.
-      // However, to make it truly "background" across tabs, this context holds the state.
-
       const res = await axios.post('http://localhost:5000/api/agent/questions', {
         topic,
         count,
-        types
+        types,
+        prepType
       });
 
       if (res.data.questions) {
