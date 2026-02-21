@@ -1,7 +1,10 @@
 import express from 'express';
 import { Subject } from '../models/Subject.ts';
+import { ChatOllama } from '@langchain/ollama';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
 const router = express.Router();
+const llm = new ChatOllama({ model: 'llama3.2', baseUrl: 'http://localhost:11434', temperature: 0.7 });
 
 router.get('/', async (req, res) => {
   try {
@@ -19,6 +22,67 @@ router.post('/', async (req, res) => {
     res.json(subject);
   } catch (err) {
     res.status(400).json({ error: (err as any).message });
+  }
+});
+
+// GET /:id/syllabus - Fetches or Generates Syllabus
+router.get('/:id/syllabus', async (req, res) => {
+  try {
+    const subject = await Subject.findById(req.params.id);
+    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+
+    // If topics exist, return them immediately
+    if (subject.topics && subject.topics.length > 0) {
+      return res.json(subject);
+    }
+
+    // If no topics, generate them using AI
+    console.log(`Generating syllabus for ${subject.name}...`);
+
+    const prompt = `
+      Create a comprehensive syllabus for the subject: "${subject.name}" for the GATE Computer Science exam.
+      Break it down into 8-12 key topics or units.
+      Return ONLY a JSON array of strings, where each string is a topic name.
+      Example: ["Propositional Logic", "Graph Theory", "Set Theory"]
+      Do not include any markdown or extra text.
+    `;
+
+    const response = await llm.invoke([
+      new SystemMessage('You are a helpful academic assistant.'),
+      new HumanMessage(prompt)
+    ]);
+
+    let topics = [];
+    try {
+      let cleanContent = response.content.toString().trim();
+      // Clean potential markdown code blocks
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+
+      topics = JSON.parse(cleanContent);
+
+      if (!Array.isArray(topics)) {
+        throw new Error('AI response was not an array');
+      }
+
+      // Save to database
+      subject.topics = topics;
+      await subject.save();
+
+      return res.json(subject);
+
+    } catch (parseError) {
+      console.error('Failed to parse AI syllabus:', parseError);
+      console.log('Raw response:', response.content);
+      return res.status(500).json({ error: 'Failed to generate syllabus. Please try again manually.' });
+    }
+
+  } catch (err) {
+    console.error('Syllabus error:', err);
+    res.status(500).json({ error: (err as any).message });
   }
 });
 
