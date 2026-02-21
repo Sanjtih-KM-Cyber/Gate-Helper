@@ -145,21 +145,21 @@ router.post('/questions', async (req, res) => {
     let formatInstruction = "";
 
     if (prepType === 'College') {
-        systemInstruction = "You are an exhaustive exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Output MUST contain 2-mark, 5-mark, and 8-mark questions. Classify each by difficulty (Easy/Medium/Hard). Do not stop until all sub-concepts are covered.";
+        systemInstruction = "You are a strict exam generator. Generate a comprehensive set of unique questions. Output MUST contain 2-mark, 5-mark, and 8-mark questions. Classify each by difficulty (Easy/Medium/Hard).";
         formatInstruction = `
-          Format Requirements:
-          - 2-mark questions: Answer approx 40-50 words.
-          - 5-mark questions: Answer approx 150-200 words.
-          - 8-mark questions: Answer approx 300-400 words.
+          CRITICAL INSTRUCTION - YOU MUST OBEY THESE STRICT WORD LIMITS FOR THE "answer" FIELD:
+          - 2-mark questions: STRICTLY 30 to 40 words. (Do not write more than 2 sentences).
+          - 5-mark questions: STRICTLY 150 to 200 words.
+          - 8-mark questions: STRICTLY 300 to 400 words.
 
-          Strictly limit scope to provided syllabus context.
+          If you write 100 words for a 2-mark question, you fail. Count your words mentally before generating the text.
 
           Strict JSON Format:
           [
             {
               "type": "2-mark" | "5-mark" | "8-mark",
               "question": "Question text...",
-              "answer": "Detailed solution...",
+              "answer": "Detailed solution strictly adhering to the word limit...",
               "difficulty": "Easy" | "Medium" | "Hard"
             }
           ]

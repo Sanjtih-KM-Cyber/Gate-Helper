@@ -51,12 +51,12 @@ export default function MistakeVault() {
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       <div className="flex items-center space-x-3 mb-8">
         <AlertCircle className="text-red-500" size={32} />
-        <h1 className="text-3xl font-bold text-white">Mistake Vault</h1>
+        <h1 className="text-3xl font-bold text-white">Learning Vault</h1>
       </div>
 
       {mistakes.length === 0 ? (
         <div className="text-center text-gray-500 py-20">
-          No mistakes logged yet. Keep practicing!
+          No learning items logged yet. Keep practicing!
         </div>
       ) : (
         <div className="space-y-6">
