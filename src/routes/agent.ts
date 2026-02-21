@@ -52,10 +52,10 @@ function extractJSON(text: string): any {
 // Generate Questions (Infinite Exam Engine)
 router.post('/questions', async (req, res) => {
   try {
-    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'] } = req.body;
+    const { topic, count = 5, types = ['MCQ', 'MSQ', 'NAT'], prepType = 'GATE' } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
-    console.log(`Generating ${count} questions for: ${topic}`);
+    console.log(`Generating questions for: ${topic} (Mode: ${prepType})`);
 
     const localContext = await getRelevantContext(topic);
     let searchResults = '';
@@ -65,31 +65,55 @@ router.post('/questions', async (req, res) => {
       console.log('Search unavailable');
     }
 
-    const systemPrompt = await getSystemPrompt("You generate high-quality GATE exam questions.");
+    let systemInstruction = "";
+    let formatInstruction = "";
+
+    if (prepType === 'College') {
+        systemInstruction = "You are an exhaustive exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Do not stop until all sub-concepts are covered.";
+        formatInstruction = `
+          Format: 2-mark, 5-mark, and 8-mark questions.
+          Classify each by difficulty (Easy/Medium/Hard).
+
+          Strict JSON Format:
+          [
+            {
+              "type": "2-mark" | "5-mark" | "8-mark",
+              "question": "Question text...",
+              "answer": "Detailed solution...",
+              "difficulty": "Easy" | "Medium" | "Hard"
+            }
+          ]
+        `;
+    } else {
+        // GATE Default
+        systemInstruction = "You are an exhaustive GATE exam generator. Generate a comprehensive set of unique questions covering the ENTIRE topic. Do not stop until all mathematical and theoretical sub-concepts are covered.";
+        formatInstruction = `
+          Formats MUST be MCQ, MSQ, and NAT.
+          Classify each by difficulty: Easy, Medium, Hard, and Topper.
+
+          Strict JSON Format:
+          [
+            {
+              "type": "MCQ" | "MSQ" | "NAT",
+              "question": "Question text...",
+              "options": ["A", "B", "C", "D"], // Empty for NAT
+              "answer": "Correct Answer",
+              "explanation": "Detailed solution...",
+              "difficulty": "Easy" | "Medium" | "Hard" | "Topper"
+            }
+          ]
+        `;
+    }
+
+    const systemPrompt = await getSystemPrompt(systemInstruction);
     const prompt = `
       Context:
       ${localContext || "No specific notes found."}
       ${searchResults}
 
       Task:
-      Generate ${count} distinct GATE-style questions for "${topic}".
-      Include a mix of ${types.join(', ')} types as requested.
-      
-      For NAT (Numerical Answer Type), ensure the answer is a number range or specific value.
-      For MSQ (Multiple Select Question), ensure multiple options can be correct.
-      For MCQ (Multiple Choice Question), ensure exactly one option is correct.
-
-      Format as a strictly valid JSON array of objects:
-      [
-        {
-          "type": "MCQ" | "MSQ" | "NAT",
-          "question": "Question text...",
-          "options": ["A", "B", "C", "D"], // Empty for NAT
-          "answer": "Correct Answer (Option letter or Number)",
-          "explanation": "Detailed solution...",
-          "difficulty": "Easy" | "Medium" | "Hard"
-        }
-      ]
+      Generate ${count} distinct questions for "${topic}".
+      ${formatInstruction}
 
       Return ONLY the raw JSON string. No markdown.
     `;

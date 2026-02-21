@@ -225,10 +225,10 @@ router.post('/gate-prep', async (req, res) => {
   }
 });
 
-// Update Topic Status / Confidence
+// Update Topic Status / Confidence (Legacy PUT)
 router.put('/:id/topic', async (req, res) => {
     try {
-        const { unitName, topicName, status, confidence } = req.body;
+        const { topicName, status, confidence } = req.body;
         const subject = await Subject.findById(req.params.id);
 
         if(!subject) return res.status(404).json({error: 'Subject not found'});
@@ -236,7 +236,6 @@ router.put('/:id/topic', async (req, res) => {
         let updated = false;
         if (subject.syllabus) {
             for (const unit of subject.syllabus) {
-                // simple loop to find topic
                 for (const topic of unit.topics) {
                     if (topic.name === topicName) {
                         if (status) topic.status = status;
@@ -248,7 +247,6 @@ router.put('/:id/topic', async (req, res) => {
         }
 
         if (updated) {
-            // markModified is needed because we modified nested array
             subject.markModified('syllabus');
             await subject.save();
             res.json(subject);
@@ -259,6 +257,54 @@ router.put('/:id/topic', async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: (err as any).message });
     }
+});
+
+// New Endpoint: Update Topic Status & Auto-Complete Subject
+router.put('/:id/topic-status', async (req, res) => {
+  try {
+    const { topicName, status } = req.body;
+    if (!topicName || !status) return res.status(400).json({ error: 'Topic name and status are required' });
+
+    const subject = await Subject.findById(req.params.id);
+    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+
+    let topicFound = false;
+    let allCompleted = true;
+
+    if (subject.syllabus) {
+      for (const unit of subject.syllabus) {
+        for (const topic of unit.topics) {
+          if (topic.name === topicName) {
+            topic.status = status;
+            topicFound = true;
+          }
+          // Check completion status of all topics
+          if (topic.status !== 'Completed') {
+            allCompleted = false;
+          }
+        }
+      }
+    }
+
+    if (!topicFound) {
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+
+    // Auto-update Subject Status
+    if (allCompleted) {
+      subject.status = 'Completed';
+    } else if (subject.status === 'Not Started' && status === 'In Progress') {
+      subject.status = 'In Progress';
+    }
+
+    subject.markModified('syllabus');
+    await subject.save();
+    res.json(subject);
+
+  } catch (err) {
+    console.error('Topic Status Update Error:', err);
+    res.status(500).json({ error: (err as any).message });
+  }
 });
 
 router.delete('/:id', async (req, res) => {

@@ -190,7 +190,7 @@ export default function TopicStudio() {
     if (activeTab === 'mistakes') fetchMistakes();
 
     // Load Chat History
-    const savedMessages = localStorage.getItem(`chat_${subjectId}_${topic}`);
+    const savedMessages = localStorage.getItem(`chat_${subjectId}_${decodedTopic}`);
     if (savedMessages) {
         setMessages(JSON.parse(savedMessages));
     } else {
@@ -205,9 +205,9 @@ export default function TopicStudio() {
   // Save Chat History on Update
   useEffect(() => {
     if (messages.length > 0) {
-        localStorage.setItem(`chat_${subjectId}_${topic}`, JSON.stringify(messages));
+        localStorage.setItem(`chat_${subjectId}_${decodedTopic}`, JSON.stringify(messages));
     }
-  }, [messages, subjectId, topic]);
+  }, [messages, subjectId, decodedTopic]);
 
   const fetchTopicDetails = async () => {
     try {
@@ -227,16 +227,27 @@ export default function TopicStudio() {
     }
   };
 
-  const updateTopicStatus = async (newConfidence: 'Red' | 'Yellow' | 'Green') => {
+  const updateTopicStatus = async (newStatus: 'Not Started' | 'In Progress' | 'Completed') => {
+    setStatus(newStatus);
+    try {
+      await axios.put(`http://localhost:5000/api/subjects/${subjectId}/topic-status`, {
+        topicName: decodedTopic,
+        status: newStatus
+      });
+    } catch (err) {
+      console.error("Failed to update topic status", err);
+    }
+  };
+
+  const updateTopicConfidence = async (newConfidence: 'Red' | 'Yellow' | 'Green') => {
     setConfidence(newConfidence);
     try {
         await axios.put(`http://localhost:5000/api/subjects/${subjectId}/topic`, {
             topicName: decodedTopic,
-            confidence: newConfidence,
-            status: 'In Progress'
+            confidence: newConfidence
         });
     } catch (err) {
-        console.error("Failed to update status", err);
+        console.error("Failed to update confidence", err);
     }
   };
 
@@ -256,6 +267,12 @@ export default function TopicStudio() {
 
   const sendMessage = async () => {
     if (!inputMessage.trim()) return;
+
+    // First message trigger
+    if (status === 'Not Started') {
+        updateTopicStatus('In Progress');
+    }
+
     const userMsg = inputMessage;
     setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
     setInputMessage('');
@@ -297,14 +314,25 @@ export default function TopicStudio() {
          </div>
 
          <div className="flex items-center space-x-4">
+            {/* Mark as Completed Button */}
+            {status !== 'Completed' && (
+                <button
+                  onClick={() => updateTopicStatus('Completed')}
+                  className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center shadow-lg shadow-green-900/20 transition-all"
+                >
+                  <CheckCircle size={16} className="mr-2"/> Mark Completed
+                </button>
+            )}
+
+            {/* Confidence Traffic Light */}
             <div className="flex bg-gray-900 rounded-full p-1 border border-gray-800">
-               <button onClick={() => updateTopicStatus('Red')} className={`p-2 rounded-full transition-all ${confidence === 'Red' ? 'bg-red-500 shadow-lg shadow-red-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Low Confidence">
+               <button onClick={() => updateTopicConfidence('Red')} className={`p-2 rounded-full transition-all ${confidence === 'Red' ? 'bg-red-500 shadow-lg shadow-red-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Low Confidence">
                   <AlertTriangle size={16} className={confidence === 'Red' ? 'text-white' : ''}/>
                </button>
-               <button onClick={() => updateTopicStatus('Yellow')} className={`p-2 rounded-full transition-all ${confidence === 'Yellow' ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Medium Confidence">
+               <button onClick={() => updateTopicConfidence('Yellow')} className={`p-2 rounded-full transition-all ${confidence === 'Yellow' ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="Medium Confidence">
                   <Activity size={16} className={confidence === 'Yellow' ? 'text-white' : ''}/>
                </button>
-               <button onClick={() => updateTopicStatus('Green')} className={`p-2 rounded-full transition-all ${confidence === 'Green' ? 'bg-green-500 shadow-lg shadow-green-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="High Confidence">
+               <button onClick={() => updateTopicConfidence('Green')} className={`p-2 rounded-full transition-all ${confidence === 'Green' ? 'bg-green-500 shadow-lg shadow-green-500/50 scale-110' : 'text-gray-600 hover:bg-gray-800'}`} title="High Confidence">
                   <CheckCircle size={16} className={confidence === 'Green' ? 'text-white' : ''}/>
                </button>
             </div>
