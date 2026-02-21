@@ -6,24 +6,26 @@ import axios from 'axios';
 export default function Dashboard() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<FileList | null>(null);
   const [uploadMessage, setUploadMessage] = useState('');
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!files || files.length === 0) return;
 
     setUploading(true);
     setUploadMessage('');
     const formData = new FormData();
-    formData.append('file', file);
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
 
     try {
       const res = await axios.post('http://localhost:5000/api/subjects/gate-upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setUploadMessage(`Success! Updated subjects: ${res.data.subjects.join(', ')}`);
-      setFile(null);
+      setFiles(null);
       // Optional: Trigger a refresh if we had a subjects list here, but Dashboard mostly links out.
     } catch (err: any) {
       console.error(err);
@@ -127,12 +129,13 @@ export default function Dashboard() {
                               id="master-upload"
                               className="hidden"
                               accept=".pdf,image/*"
-                              onChange={e => setFile(e.target.files?.[0] || null)}
+                              multiple
+                              onChange={e => setFiles(e.target.files)}
                           />
                           <label htmlFor="master-upload" className="cursor-pointer flex flex-col items-center w-full">
                               <Upload className="text-green-500 mb-3" size={32}/>
-                              <span className="text-gray-300 font-medium">Click to Select File</span>
-                              {file && <span className="mt-2 text-sm text-green-400">{file.name}</span>}
+                              <span className="text-gray-300 font-medium">Click to Select Files (Bulk Supported)</span>
+                              {files && files.length > 0 && <span className="mt-2 text-sm text-green-400">{files.length} file(s) selected</span>}
                           </label>
                       </div>
 
@@ -144,7 +147,7 @@ export default function Dashboard() {
 
                       <button
                           type="submit"
-                          disabled={!file || uploading}
+                          disabled={!files || files.length === 0 || uploading}
                           className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center"
                       >
                           {uploading ? <><Loader2 className="animate-spin mr-2"/> Processing...</> : 'Start Extraction'}
