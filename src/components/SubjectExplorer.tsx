@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
-import { Book, Plus, ArrowRight, Upload, Loader2, Database, GraduationCap, X } from 'lucide-react';
+import { Book, Plus, ArrowRight, Upload, Loader2, Database, GraduationCap, X, FlaskConical } from 'lucide-react';
 
 interface Subject {
   _id: string;
   name: string;
   description: string;
   category: string;
+  type: 'Theory' | 'Lab';
   syllabus: any[];
 }
 
@@ -38,6 +39,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
   // Modal State for College Prep
   const [showModal, setShowModal] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState('');
+  const [subjectType, setSubjectType] = useState<'Theory' | 'Lab'>('Theory');
   const [files, setFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -85,14 +87,21 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
 
   const handleCollegePrepSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSubjectName || !files || files.length === 0) return;
+    if (!newSubjectName) return;
+    if (subjectType === 'Theory' && (!files || files.length === 0)) {
+        alert("Please upload syllabus files for Theory subjects.");
+        return;
+    }
 
     setUploading(true);
     const formData = new FormData();
     formData.append('name', newSubjectName);
+    formData.append('type', subjectType);
     formData.append('description', 'User uploaded subject');
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
+    if (files) {
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files', files[i]);
+        }
     }
 
     try {
@@ -102,6 +111,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
       setSubjects([...subjects, res.data]);
       setShowModal(false);
       setNewSubjectName('');
+      setSubjectType('Theory');
       setFiles(null);
     } catch (err) {
       console.error(err);
@@ -153,14 +163,23 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
                   <div>
                     <div className="flex justify-between items-start mb-4">
                       <h2 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-2">{sub.name}</h2>
-                      <Book className="text-gray-600 group-hover:text-blue-500 transition-colors flex-shrink-0" size={24}/>
+                      {sub.type === 'Lab' ? (
+                          <FlaskConical className="text-purple-500 group-hover:text-purple-400 transition-colors flex-shrink-0" size={24}/>
+                      ) : (
+                          <Book className="text-gray-600 group-hover:text-blue-500 transition-colors flex-shrink-0" size={24}/>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 mb-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${sub.type === 'Lab' ? 'bg-purple-900/30 text-purple-400' : 'bg-blue-900/30 text-blue-400'}`}>
+                            {sub.type}
+                        </span>
                     </div>
                     <p className="text-gray-500 text-sm">
                         {sub.syllabus?.length || 0} Units • {sub.syllabus?.reduce((acc: number, u: any) => acc + (u.topics?.length || 0), 0) || 0} Topics
                     </p>
                   </div>
                   <div className="flex items-center text-blue-500 text-sm font-medium mt-6 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300">
-                    View Syllabus <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                    View Workspace <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
                   </div>
                 </Link>
               ))
@@ -230,39 +249,80 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
                     />
                  </div>
 
+                 {/* Type Selection */}
                  <div>
-                    <label className="block text-gray-400 text-sm font-medium mb-2">Syllabus Files (PDF/Images)</label>
-                    <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-blue-500/50 transition-colors group cursor-pointer bg-gray-800/50">
-                       <Upload className="text-gray-500 group-hover:text-blue-400 mb-3" size={32}/>
-                       <input
-                         type="file"
-                         multiple
-                         accept=".pdf,image/*"
-                         onChange={e => setFiles(e.target.files)}
-                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" // Overlay input
-                         style={{ position: 'relative', height: '100px', width: '100%', display: 'none' }} // Actually better to use label click
-                         id="file-upload"
-                       />
-                       <label htmlFor="file-upload" className="cursor-pointer w-full flex flex-col items-center">
-                            <span className="text-gray-300 font-medium group-hover:text-blue-400">Click to Upload</span>
-                            <span className="text-gray-500 text-xs mt-1">PDFs or Screenshots of Syllabus</span>
-                            {files && files.length > 0 && (
-                                <div className="mt-4 bg-blue-900/30 px-3 py-1 rounded-full text-blue-300 text-xs">
-                                    {files.length} files selected
-                                </div>
-                            )}
-                       </label>
-                       {/* Actual hidden input needed properly */}
-                       <input
-                         id="file-upload"
-                         type="file"
-                         multiple
-                         accept=".pdf,image/*"
-                         onChange={e => setFiles(e.target.files)}
-                         className="hidden"
-                       />
+                    <label className="block text-gray-400 text-sm font-medium mb-2">Subject Type</label>
+                    <div className="flex space-x-4">
+                        <button
+                            type="button"
+                            onClick={() => setSubjectType('Theory')}
+                            className={`flex-1 py-3 rounded-lg border flex items-center justify-center space-x-2 transition-all ${
+                                subjectType === 'Theory'
+                                ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
+                                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+                            }`}
+                        >
+                            <Book size={18} />
+                            <span>Theory</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSubjectType('Lab')}
+                            className={`flex-1 py-3 rounded-lg border flex items-center justify-center space-x-2 transition-all ${
+                                subjectType === 'Lab'
+                                ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
+                                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+                            }`}
+                        >
+                            <FlaskConical size={18} />
+                            <span>Lab</span>
+                        </button>
                     </div>
                  </div>
+
+                 {/* Optional Upload for Theory */}
+                 {subjectType === 'Theory' && (
+                     <div className="animate-in fade-in slide-in-from-top-4 duration-300">
+                        <label className="block text-gray-400 text-sm font-medium mb-2">Syllabus Files (PDF/Images)</label>
+                        <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-blue-500/50 transition-colors group cursor-pointer bg-gray-800/50">
+                        <Upload className="text-gray-500 group-hover:text-blue-400 mb-3" size={32}/>
+                        <input
+                            type="file"
+                            multiple
+                            accept=".pdf,image/*"
+                            onChange={e => setFiles(e.target.files)}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            style={{ position: 'relative', height: '100px', width: '100%', display: 'none' }}
+                            id="file-upload"
+                        />
+                        <label htmlFor="file-upload" className="cursor-pointer w-full flex flex-col items-center">
+                                <span className="text-gray-300 font-medium group-hover:text-blue-400">Click to Upload</span>
+                                <span className="text-gray-500 text-xs mt-1">PDFs or Screenshots of Syllabus</span>
+                                {files && files.length > 0 && (
+                                    <div className="mt-4 bg-blue-900/30 px-3 py-1 rounded-full text-blue-300 text-xs">
+                                        {files.length} files selected
+                                    </div>
+                                )}
+                        </label>
+                        <input
+                            id="file-upload"
+                            type="file"
+                            multiple
+                            accept=".pdf,image/*"
+                            onChange={e => setFiles(e.target.files)}
+                            className="hidden"
+                        />
+                        </div>
+                     </div>
+                 )}
+
+                 {/* Lab Info */}
+                 {subjectType === 'Lab' && (
+                     <div className="p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg text-sm text-purple-300 animate-in fade-in slide-in-from-top-4 duration-300">
+                         <p className="font-medium mb-1">Lab Mode Selected</p>
+                         <p className="opacity-80">This will create an empty workspace where you can manually add experiments or upload lab manuals later.</p>
+                     </div>
+                 )}
 
                  <div className="flex justify-end pt-4">
                     <button
@@ -277,7 +337,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
                       disabled={uploading}
                       className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium shadow-lg hover:shadow-blue-900/30 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {uploading ? <><Loader2 className="animate-spin mr-2" size={18}/> Analyzing...</> : 'Create Subject'}
+                      {uploading ? <><Loader2 className="animate-spin mr-2" size={18}/> {subjectType === 'Theory' ? 'Analyzing...' : 'Creating...'}</> : 'Create Subject'}
                     </button>
                  </div>
               </form>
