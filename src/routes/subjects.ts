@@ -72,10 +72,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /college-prep - Manual Setup + File Upload
+// POST /college-prep - Create Subject (Manual Setup + File Upload) - Handles both College and GATE custom uploads
 router.post('/college-prep', upload.array('files'), async (req, res) => {
   try {
-    const { name, description, type = 'Theory' } = req.body;
+    // Default to 'College Prep' if category not provided, but allow override (e.g. 'GATE Prep')
+    const { name, description, type = 'Theory', category = 'College Prep' } = req.body;
     const files = req.files as Express.Multer.File[];
 
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
@@ -85,7 +86,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
        const newSubject = new Subject({
           name,
           description,
-          category: 'College Prep',
+          category, // Use dynamic category
           type: 'Lab',
           syllabus: []
        });
@@ -96,7 +97,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
     // Handle Theory Type: Require Files
     if (!files || files.length === 0) return res.status(400).json({ error: 'Syllabus files are required for Theory subjects' });
 
-    console.log(`Processing College Prep subject: ${name}`);
+    console.log(`Processing ${category} subject: ${name}`);
 
     let combinedText = '';
     for (const file of files) {
@@ -107,6 +108,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
     const systemPrompt = `You are an academic assistant. Extract a structured syllabus from course documents.`;
     const userPrompt = `
       Subject: ${name}
+      Category: ${category}
       Content:
       ${combinedText.substring(0, 15000)}
 
@@ -131,7 +133,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
     const newSubject = new Subject({
       name,
       description,
-      category: 'College Prep',
+      category, // Use dynamic category
       type: 'Theory',
       syllabus: syllabusData.syllabus || []
     });
@@ -140,7 +142,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
     res.json(newSubject);
 
   } catch (err) {
-    console.error('College Prep Error:', err);
+    console.error('Creation Error:', err);
     res.status(500).json({ error: (err as any).message });
   }
 });

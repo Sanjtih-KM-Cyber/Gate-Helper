@@ -36,14 +36,19 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Modal State for College Prep
+  // Modal State for College Prep / Custom GATE
   const [showModal, setShowModal] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState('');
   const [subjectType, setSubjectType] = useState<'Theory' | 'Lab'>('Theory');
   const [files, setFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Loading State for GATE subject creation
+  // Modal State for Master Syllabus Upload (GATE)
+  const [showMasterUpload, setShowMasterUpload] = useState(false);
+  const [masterFile, setMasterFile] = useState<File | null>(null);
+  const [masterMessage, setMasterMessage] = useState('');
+
+  // Loading State for GATE subject creation (Scrape)
   const [creatingGateSubject, setCreatingGateSubject] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +77,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
       return;
     }
 
-    // Create it
+    // Create it via Scrape
     setCreatingGateSubject(subjectName);
     try {
       const res = await axios.post('http://localhost:5000/api/subjects/gate-prep', { name: subjectName });
@@ -85,7 +90,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     }
   };
 
-  const handleCollegePrepSubmit = async (e: React.FormEvent) => {
+  const handleCreateSubjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSubjectName) return;
     if (subjectType === 'Theory' && (!files || files.length === 0)) {
@@ -97,6 +102,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     const formData = new FormData();
     formData.append('name', newSubjectName);
     formData.append('type', subjectType);
+    formData.append('category', category); // Pass current category
     formData.append('description', 'User uploaded subject');
     if (files) {
         for (let i = 0; i < files.length; i++) {
@@ -105,6 +111,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     }
 
     try {
+      // Reusing the upload-capable endpoint
       const res = await axios.post('http://localhost:5000/api/subjects/college-prep', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -121,6 +128,30 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     }
   };
 
+  const handleMasterUpload = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!masterFile) return;
+      setUploading(true);
+      setMasterMessage('');
+
+      const formData = new FormData();
+      formData.append('file', masterFile);
+
+      try {
+          const res = await axios.post('http://localhost:5000/api/subjects/gate-upload', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          setMasterMessage(`Success! Updated: ${res.data.subjects.join(', ')}`);
+          fetchSubjects(); // Refresh list
+          setMasterFile(null);
+      } catch (err) {
+          console.error(err);
+          setMasterMessage('Failed to upload syllabus.');
+      } finally {
+          setUploading(false);
+      }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-8">
@@ -134,15 +165,25 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
            </p>
         </div>
 
-        {category === 'College Prep' && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl flex items-center space-x-2 transition-all shadow-lg hover:shadow-blue-900/40"
-          >
-            <Plus size={20} />
-            <span className="font-medium">Add Subject</span>
-          </button>
-        )}
+        <div className="flex space-x-4">
+            {category === 'GATE Prep' && (
+                <button
+                    onClick={() => setShowMasterUpload(true)}
+                    className="bg-green-900/30 border border-green-700 text-green-400 hover:bg-green-900/50 px-6 py-3 rounded-xl flex items-center space-x-2 transition-all"
+                >
+                    <Upload size={20} />
+                    <span className="font-medium">Master Syllabus</span>
+                </button>
+            )}
+
+            <button
+                onClick={() => setShowModal(true)}
+                className={`${category === 'College Prep' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'} text-white px-6 py-3 rounded-xl flex items-center space-x-2 transition-all shadow-lg`}
+            >
+                <Plus size={20} />
+                <span className="font-medium">Add Subject</span>
+            </button>
+        </div>
       </div>
 
       {loading ? (
@@ -151,50 +192,47 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {category === 'College Prep' ? (
-            subjects.length === 0 ? (
-              <div className="col-span-full text-center py-20 border-2 border-dashed border-gray-800 rounded-xl">
-                 <p className="text-gray-500 mb-4">No subjects yet. Add one to get started!</p>
-                 <button onClick={() => setShowModal(true)} className="text-blue-500 hover:underline">Create a Subject</button>
-              </div>
-            ) : (
-              subjects.map((sub) => (
-                <Link to={`/subject/${sub._id}`} key={sub._id} className="group bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-blue-500 transition-all shadow-lg hover:shadow-blue-900/20 flex flex-col justify-between min-h-[180px]">
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <h2 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-2">{sub.name}</h2>
-                      {sub.type === 'Lab' ? (
-                          <FlaskConical className="text-purple-500 group-hover:text-purple-400 transition-colors flex-shrink-0" size={24}/>
-                      ) : (
-                          <Book className="text-gray-600 group-hover:text-blue-500 transition-colors flex-shrink-0" size={24}/>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2 mb-2">
-                        <span className={`text-xs px-2 py-0.5 rounded ${sub.type === 'Lab' ? 'bg-purple-900/30 text-purple-400' : 'bg-blue-900/30 text-blue-400'}`}>
-                            {sub.type}
-                        </span>
-                    </div>
-                    <p className="text-gray-500 text-sm">
-                        {sub.syllabus?.length || 0} Units • {sub.syllabus?.reduce((acc: number, u: any) => acc + (u.topics?.length || 0), 0) || 0} Topics
-                    </p>
-                  </div>
-                  <div className="flex items-center text-blue-500 text-sm font-medium mt-6 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300">
-                    View Workspace <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                  </div>
-                </Link>
-              ))
-            )
-          ) : (
-            // GATE PREP FLOW
-            GATE_SUBJECTS.map((name) => {
+          {/* Render User Subjects */}
+          {subjects.map((sub) => (
+            <Link to={`/subject/${sub._id}`} key={sub._id} className={`group bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all shadow-lg flex flex-col justify-between min-h-[180px] ${category === 'College Prep' ? 'hover:border-blue-500 hover:shadow-blue-900/20' : 'hover:border-green-500 hover:shadow-green-900/20'}`}>
+                <div>
+                <div className="flex justify-between items-start mb-4">
+                    <h2 className={`text-xl font-bold text-white transition-colors line-clamp-2 ${category === 'College Prep' ? 'group-hover:text-blue-400' : 'group-hover:text-green-400'}`}>{sub.name}</h2>
+                    {sub.type === 'Lab' ? (
+                        <FlaskConical className="text-purple-500 group-hover:text-purple-400 transition-colors flex-shrink-0" size={24}/>
+                    ) : (
+                        category === 'College Prep' ?
+                        <Book className="text-gray-600 group-hover:text-blue-500 transition-colors flex-shrink-0" size={24}/> :
+                        <Database className="text-gray-600 group-hover:text-green-500 transition-colors flex-shrink-0" size={24}/>
+                    )}
+                </div>
+                <div className="flex items-center space-x-2 mb-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${sub.type === 'Lab' ? 'bg-purple-900/30 text-purple-400' : 'bg-gray-800 text-gray-400'}`}>
+                        {sub.type}
+                    </span>
+                </div>
+                <p className="text-gray-500 text-sm">
+                    {sub.syllabus?.length || 0} Units • {sub.syllabus?.reduce((acc: number, u: any) => acc + (u.topics?.length || 0), 0) || 0} Topics
+                </p>
+                </div>
+                <div className={`flex items-center text-sm font-medium mt-6 opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0 duration-300 ${category === 'College Prep' ? 'text-blue-500' : 'text-green-500'}`}>
+                View Workspace <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                </div>
+            </Link>
+          ))}
+
+          {/* Render Default GATE Suggestions (Only if in GATE mode and not already created) */}
+          {category === 'GATE Prep' && GATE_SUBJECTS.map((name) => {
               const existing = subjects.find(s => s.name === name);
+              if (existing) return null; // Don't duplicate
+
               const isCreating = creatingGateSubject === name;
 
               return (
                 <div
                    key={name}
                    onClick={() => !isCreating && handleGateSubjectClick(name)}
-                   className={`relative group bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all shadow-lg hover:shadow-green-900/20 flex flex-col justify-between min-h-[180px] cursor-pointer ${existing ? 'hover:border-green-500' : 'hover:border-gray-600 opacity-80 hover:opacity-100'}`}
+                   className="relative group bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all shadow-lg hover:shadow-green-900/20 flex flex-col justify-between min-h-[180px] cursor-pointer hover:border-gray-600 opacity-80 hover:opacity-100"
                 >
                    {isCreating && (
                       <div className="absolute inset-0 bg-gray-900/90 z-10 flex flex-col items-center justify-center rounded-xl backdrop-blur-sm">
@@ -205,44 +243,43 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
 
                    <div>
                      <div className="flex justify-between items-start mb-4">
-                       <h2 className={`text-xl font-bold transition-colors line-clamp-2 ${existing ? 'text-white group-hover:text-green-400' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                       <h2 className="text-xl font-bold text-gray-400 group-hover:text-gray-200 transition-colors line-clamp-2">
                          {name}
                        </h2>
-                       <Database className={`${existing ? 'text-green-600' : 'text-gray-700'} group-hover:text-green-500 transition-colors flex-shrink-0`} size={24}/>
+                       <Database className="text-gray-700 group-hover:text-green-500 transition-colors flex-shrink-0" size={24}/>
                      </div>
                      <p className="text-gray-500 text-sm">
-                        {existing ? `${existing.syllabus?.length || 0} Units • Ready` : 'Not Started • Click to Initialize'}
+                        Not Started • Click to Initialize
                      </p>
                    </div>
 
-                   <div className={`flex items-center text-sm font-medium mt-6 transition-all ${existing ? 'text-green-500 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0' : 'text-gray-500 group-hover:text-gray-300'}`}>
-                     {existing ? 'Enter Subject' : 'Initialize Subject'} <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                   <div className="flex items-center text-sm font-medium mt-6 transition-all text-gray-500 group-hover:text-gray-300">
+                     Initialize Subject <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
                    </div>
                 </div>
               );
-            })
-          )}
+            })}
         </div>
       )}
 
-      {/* Modal for College Prep Upload */}
+      {/* Modal for Create Subject (College or GATE Custom) */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
            <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center p-6 border-b border-gray-800">
-                 <h2 className="text-xl font-bold text-white">Add New Subject</h2>
+                 <h2 className="text-xl font-bold text-white">Add New {category === 'GATE Prep' ? 'GATE' : 'College'} Subject</h2>
                  <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-white transition-colors">
                     <X size={24} />
                  </button>
               </div>
 
-              <form onSubmit={handleCollegePrepSubmit} className="p-6 space-y-6">
+              <form onSubmit={handleCreateSubjectSubmit} className="p-6 space-y-6">
                  <div>
                     <label className="block text-gray-400 text-sm font-medium mb-2">Subject Name</label>
                     <input
                       type="text"
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      placeholder="e.g. Distributed Systems"
+                      placeholder="e.g. Advanced Algorithms"
                       value={newSubjectName}
                       onChange={e => setNewSubjectName(e.target.value)}
                       required
@@ -343,6 +380,51 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
               </form>
            </div>
         </div>
+      )}
+
+      {/* Modal for Master Syllabus Upload */}
+      {showMasterUpload && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 relative animate-in zoom-in-95 duration-200">
+                  <button onClick={() => setShowMasterUpload(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white">
+                      <X size={24}/>
+                  </button>
+
+                  <h2 className="text-xl font-bold text-white mb-4">Upload Master GATE Syllabus</h2>
+                  <p className="text-gray-400 text-sm mb-6">Upload the official GATE PDF/Image. AI will extract subjects and merge them into your GATE Prep space.</p>
+
+                  <form onSubmit={handleMasterUpload} className="space-y-6">
+                      <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-green-500/50 transition-colors cursor-pointer bg-gray-800/30">
+                          <input
+                              type="file"
+                              id="master-upload"
+                              className="hidden"
+                              accept=".pdf,image/*"
+                              onChange={e => setMasterFile(e.target.files?.[0] || null)}
+                          />
+                          <label htmlFor="master-upload" className="cursor-pointer flex flex-col items-center w-full">
+                              <Upload className="text-green-500 mb-3" size={32}/>
+                              <span className="text-gray-300 font-medium">Click to Select File</span>
+                              {masterFile && <span className="mt-2 text-sm text-green-400">{masterFile.name}</span>}
+                          </label>
+                      </div>
+
+                      {masterMessage && (
+                          <div className={`p-3 rounded text-sm ${masterMessage.includes('Success') ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+                              {masterMessage}
+                          </div>
+                      )}
+
+                      <button
+                          type="submit"
+                          disabled={!masterFile || uploading}
+                          className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center"
+                      >
+                          {uploading ? <><Loader2 className="animate-spin mr-2"/> Processing...</> : 'Start Extraction'}
+                      </button>
+                  </form>
+              </div>
+          </div>
       )}
     </div>
   );
