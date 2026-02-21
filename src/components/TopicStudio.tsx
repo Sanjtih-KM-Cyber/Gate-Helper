@@ -169,6 +169,7 @@ export default function TopicStudio() {
 
   const [confidence, setConfidence] = useState<'Red' | 'Yellow' | 'Green'>('Red');
   const [status, setStatus] = useState<'Not Started' | 'In Progress' | 'Completed'>('In Progress');
+  const [prepType, setPrepType] = useState<'College' | 'GATE'>('GATE');
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -212,13 +213,18 @@ export default function TopicStudio() {
   const fetchTopicDetails = async () => {
     try {
       const res = await axios.get(`http://localhost:5000/api/subjects/${subjectId}`);
-      if (res.data.syllabus) {
-        for (const unit of res.data.syllabus) {
-            const t = unit.topics.find((t: any) => t.name === decodedTopic);
-            if (t) {
-                setConfidence(t.confidence);
-                setStatus(t.status);
-                break;
+      if (res.data) {
+        if (res.data.category === 'College Prep') setPrepType('College');
+        else setPrepType('GATE');
+
+        if (res.data.syllabus) {
+            for (const unit of res.data.syllabus) {
+                const t = unit.topics.find((t: any) => t.name === decodedTopic);
+                if (t) {
+                    setConfidence(t.confidence);
+                    setStatus(t.status);
+                    break;
+                }
             }
         }
       }
@@ -293,7 +299,8 @@ export default function TopicStudio() {
   };
 
   const handleGenerateQuestions = () => {
-    startQuestionGeneration(decodedTopic, 5, ['MCQ', 'MSQ', 'NAT']);
+    // Pass prepType dynamically
+    startQuestionGeneration(decodedTopic, 5, [], prepType);
   };
 
   return (
@@ -309,6 +316,7 @@ export default function TopicStudio() {
                <div className="flex items-center space-x-2 text-xs text-gray-500">
                   <span className={`w-2 h-2 rounded-full ${status === 'Completed' ? 'bg-green-500' : 'bg-blue-500'}`}></span>
                   <span>{status}</span>
+                  <span className="bg-gray-800 px-2 rounded">{prepType}</span>
                </div>
             </div>
          </div>
@@ -421,8 +429,16 @@ export default function TopicStudio() {
                              <div key={idx} className="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-sm">
                                 <div className="flex justify-between mb-4">
                                    <div className="flex items-center space-x-2">
-                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${q.type === 'NAT' ? 'bg-pink-900/30 text-pink-400' : q.type === 'MSQ' ? 'bg-orange-900/30 text-orange-400' : 'bg-blue-900/30 text-blue-400'}`}>{q.type}</span>
-                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${q.difficulty === 'Hard' ? 'bg-red-900/30 text-red-400' : q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-green-900/30 text-green-400'}`}>{q.difficulty}</span>
+                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
+                                         q.type === 'NAT' || q.type === '2-mark' ? 'bg-pink-900/30 text-pink-400' :
+                                         q.type === 'MSQ' || q.type === '5-mark' ? 'bg-orange-900/30 text-orange-400' :
+                                         'bg-blue-900/30 text-blue-400'
+                                      }`}>{q.type}</span>
+                                      <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${
+                                         q.difficulty === 'Hard' ? 'bg-red-900/30 text-red-400' :
+                                         q.difficulty === 'Medium' ? 'bg-yellow-900/30 text-yellow-400' :
+                                         'bg-green-900/30 text-green-400'
+                                      }`}>{q.difficulty}</span>
                                    </div>
                                    <span className="text-gray-500 text-xs font-mono">#{idx+1}</span>
                                 </div>
@@ -440,7 +456,7 @@ export default function TopicStudio() {
                                    </div>
                                 ) : (
                                    <div className="grid grid-cols-1 gap-2 mb-6">
-                                      {q.options.map((opt, i) => (
+                                      {q.options && q.options.map((opt, i) => (
                                          <div key={i} className="p-3 bg-gray-900 rounded border border-gray-800 hover:border-blue-500/50 cursor-pointer transition-colors text-gray-300 hover:text-white">{opt}</div>
                                       ))}
                                    </div>
