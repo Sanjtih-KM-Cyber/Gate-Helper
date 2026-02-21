@@ -84,7 +84,6 @@ function DigitalWhiteboard() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
-        // Handle resize if needed, for now fixed size relative to container
         canvas.width = canvas.parentElement?.clientWidth || 300;
         canvas.height = canvas.parentElement?.clientHeight || 400;
         const ctx = canvas.getContext('2d');
@@ -171,7 +170,7 @@ export default function TopicStudio() {
   const [confidence, setConfidence] = useState<'Red' | 'Yellow' | 'Green'>('Red');
   const [status, setStatus] = useState<'Not Started' | 'In Progress' | 'Completed'>('In Progress');
 
-  const [messages, setMessages] = useState<ChatMessage[]>([{ sender: 'ai', text: `Hi! I'm your AI Tutor. Let's master "${decodedTopic}".` }]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [socraticMode, setSocraticMode] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
@@ -185,19 +184,30 @@ export default function TopicStudio() {
   const { generatedQuestions, startQuestionGeneration, isGenerating } = useGlobalTask();
   const topicQuestions = generatedQuestions[decodedTopic] || [];
 
-  // Init
+  // Init & Persistence
   useEffect(() => {
     fetchTopicDetails();
     if (activeTab === 'mistakes') fetchMistakes();
+
+    // Load Chat History
+    const savedMessages = localStorage.getItem(`chat_${subjectId}_${topic}`);
+    if (savedMessages) {
+        setMessages(JSON.parse(savedMessages));
+    } else {
+        setMessages([{ sender: 'ai', text: `Hi! I'm your AI Tutor. Let's master "${decodedTopic}".` }]);
+    }
   }, [subjectId, decodedTopic, activeTab]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Auto-switch to tools if NAT question appears? Or just let user choose.
-  // The requirement: "If a question is identified as NAT..., render a basic built-in calculator and a digital scratchpad/whiteboard component in the UI"
-  // I'll show a hint to use them.
+  // Save Chat History on Update
+  useEffect(() => {
+    if (messages.length > 0) {
+        localStorage.setItem(`chat_${subjectId}_${topic}`, JSON.stringify(messages));
+    }
+  }, [messages, subjectId, topic]);
 
   const fetchTopicDetails = async () => {
     try {
@@ -344,7 +354,21 @@ export default function TopicStudio() {
                           <button onClick={() => setSocraticMode(!socraticMode)} className={`text-xs px-2 py-1 rounded border ${socraticMode ? 'bg-purple-900/30 border-purple-500 text-purple-400' : 'border-gray-700 text-gray-400 hover:text-white'}`}>Toggle Socratic</button>
                        </div>
                        <div className="relative">
-                          <input type="text" className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-500" placeholder={`Ask about ${decodedTopic}...`} value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} disabled={chatLoading} />
+                          <textarea
+                             className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-500 resize-none overflow-hidden"
+                             placeholder={`Ask about ${decodedTopic}...`}
+                             rows={1}
+                             style={{ minHeight: '46px' }}
+                             value={inputMessage}
+                             onChange={(e) => setInputMessage(e.target.value)}
+                             onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                   e.preventDefault();
+                                   sendMessage();
+                                }
+                             }}
+                             disabled={chatLoading}
+                          />
                           <button onClick={sendMessage} disabled={!inputMessage.trim() || chatLoading} className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 text-white px-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"><Send size={18} /></button>
                        </div>
                     </div>
