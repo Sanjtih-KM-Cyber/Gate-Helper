@@ -1,9 +1,11 @@
-import { HNSWLib } from "@langchain/community/vectorstores/hnswlib";
+import { LanceDB } from "@langchain/community/vectorstores/lancedb";
+import * as lancedb from "@lancedb/lancedb";
 import { OllamaEmbeddings } from "@langchain/ollama";
 import fs from 'fs';
 import path from 'path';
 
-const VECTOR_STORE_PATH = path.resolve('vector_store');
+const DB_PATH = path.resolve('vector_store_lance');
+const TABLE_NAME = 'gate_context';
 
 // Initialize Embeddings
 const embeddings = new OllamaEmbeddings({
@@ -11,51 +13,85 @@ const embeddings = new OllamaEmbeddings({
   baseUrl: "http://localhost:11434",
 });
 
-let vectorStore: HNSWLib | null = null;
+let vectorStore: LanceDB | null = null;
+
+// Initialize LanceDB Connection
+const connectToDB = async () => {
+  if (!fs.existsSync(DB_PATH)) {
+    fs.mkdirSync(DB_PATH, { recursive: true });
+  }
+  const db = await lancedb.connect(DB_PATH);
+
+  // Create table if not exists (simulated by checking schema or just trying to create)
+  try {
+     const table = await db.openTable(TABLE_NAME);
+     return table;
+  } catch (e) {
+     // Table doesn't exist, will be created on first write
+     return null; // Let langchain create it
+  }
+};
 
 export const getVectorStore = async () => {
   if (vectorStore) return vectorStore;
 
-  if (fs.existsSync(VECTOR_STORE_PATH)) {
-    console.log("Loading existing vector store...");
-    try {
-      vectorStore = await HNSWLib.load(VECTOR_STORE_PATH, embeddings);
-    } catch (error) {
-      console.error("Error loading vector store, initializing new one:", error);
-      // Fallback if corrupted
-      vectorStore = new HNSWLib(embeddings, { space: 'cosine' });
-    }
-  } else {
-    console.log("Initializing new vector store...");
-    vectorStore = new HNSWLib(embeddings, { space: 'cosine' });
+  console.log("Initializing LanceDB vector store...");
+  const db = await lancedb.connect(DB_PATH);
+
+  // Check if table exists
+  let table;
+  try {
+      table = await db.openTable(TABLE_NAME);
+  } catch {
+      // If table missing, we initialize store without it first
+      // LangChain handles table creation when adding documents
   }
+
+  vectorStore = new LanceDB(embeddings, {
+      table: table as any,
+      tableName: TABLE_NAME
+  });
+
   return vectorStore;
 };
 
 export const addDocumentsToStore = async (docs: any[]) => {
   const store = await getVectorStore();
-  await store.addDocuments(docs);
 
-  if (!fs.existsSync(VECTOR_STORE_PATH)) {
-      fs.mkdirSync(VECTOR_STORE_PATH, { recursive: true });
+  // Convert metadata to string if needed or ensure compatibility
+  const processedDocs = docs.map(d => ({
+      pageContent: d.pageContent,
+      metadata: { ...d.metadata, id: d.metadata.source || 'unknown' }
+  }));
+
+  // Re-initialize to ensure connection is fresh
+  const db = await lancedb.connect(DB_PATH);
+  const table = await db.openTable(TABLE_NAME).catch(() => null);
+
+  if (!table) {
+      // First time creation via LangChain utility
+      vectorStore = await LanceDB.fromDocuments(processedDocs, embeddings, {
+          table: table as any,
+          tableName: TABLE_NAME
+      });
+  } else {
+      // Append to existing table
+      await vectorStore?.addDocuments(processedDocs);
   }
 
-  await store.save(VECTOR_STORE_PATH);
-  console.log(`Saved ${docs.length} documents to vector store at ${VECTOR_STORE_PATH}`);
+  console.log(`Saved ${docs.length} documents to LanceDB at ${DB_PATH}`);
 };
 
 export const getRelevantContext = async (query: string, k: number = 3): Promise<string> => {
-  const store = await getVectorStore();
-  // We need to check if the store has any documents, otherwise similaritySearch might throw or return nothing
-  if (!fs.existsSync(VECTOR_STORE_PATH) && store.index.getCurrentCount() === 0) {
-      return "";
-  }
-
+  const db = await lancedb.connect(DB_PATH);
   try {
+      const table = await db.openTable(TABLE_NAME);
+      const store = new LanceDB(embeddings, { table: table as any, tableName: TABLE_NAME });
+
       const results = await store.similaritySearch(query, k);
       return results.map(doc => doc.pageContent).join("\n\n");
   } catch (e) {
-      console.error("Error searching vector store:", e);
+      console.log("No vector table found yet (no uploads). returning empty context.");
       return "";
   }
 };

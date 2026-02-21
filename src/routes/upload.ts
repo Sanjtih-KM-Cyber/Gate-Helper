@@ -28,79 +28,114 @@ async function processTextForEmbeddings(text: string, metadata: any) {
   try {
     // Add documents to the persistent vector store
     await addDocumentsToStore(docs);
-    return { success: true, chunks: docs.length, message: "Embeddings stored successfully" };
+    return { vectorsGenerated: docs.length, message: "Embeddings stored successfully" };
   } catch (error) {
     console.error('Error generating/storing embeddings:', error);
-    return { success: false, error: 'Failed to store embeddings. Ensure Ollama is running.' };
+    throw new Error('Failed to store embeddings');
   }
 }
 
-router.post('/', upload.single('file'), async (req, res) => {
+router.post('/', upload.array('files'), async (req, res) => {
   try {
-    const file = req.file;
-    const { type, youtubeUrl } = req.body; // type: 'pdf', 'pptx', 'image', 'audio', 'youtube'
+    const files = req.files as Express.Multer.File[];
+    const { youtubeUrl } = req.body;
+    const results: any[] = [];
 
-    let extractedText = '';
-    let metadata = { source: 'unknown' };
-
+    // 1. Handle YouTube URL (if provided)
     if (youtubeUrl) {
-      // Handle YouTube
       try {
         const transcript = await YoutubeTranscript.fetchTranscript(youtubeUrl);
-        extractedText = transcript.map(t => t.text).join(' ');
-        metadata = { source: youtubeUrl };
-      } catch (err) {
-        return res.status(400).json({ error: 'Failed to fetch YouTube transcript' });
+        const extractedText = transcript.map((t: any) => t.text).join(' ');
+        const metadata = { source: youtubeUrl };
+        const embeddingResult = await processTextForEmbeddings(extractedText, metadata);
+        results.push({ source: youtubeUrl, type: 'youtube', success: true, ...embeddingResult });
+      } catch (err: any) {
+        results.push({ source: youtubeUrl, type: 'youtube', success: false, error: err.message || 'Failed to fetch YouTube transcript' });
       }
-    } else if (file) {
-      const filePath = file.path;
-      metadata = { source: file.originalname };
-
-      if (file.mimetype === 'application/pdf') {
-        const dataBuffer = fs.readFileSync(filePath);
-        const data = await pdfParse(dataBuffer);
-        extractedText = data.text;
-      } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-        // PPTX
-        try {
-            // node-pptx-parser usage might vary, assuming standard usage or fallback
-            const parser = new pptxParser(filePath);
-            const result: any = await parser.parse();
-            extractedText = result.text || JSON.stringify(result); // Adjust based on library output
-        } catch (e) {
-             console.error("PPTX parse error", e);
-             extractedText = "Error parsing PPTX";
-        }
-      } else if (file.mimetype.startsWith('image/')) {
-        // Image (Tesseract)
-        const { data: { text } } = await Tesseract.recognize(filePath, 'eng');
-        extractedText = text;
-      } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
-        // Audio (Whisper)
-        try {
-            const result: any = await (nodewhisper as any)(filePath, {
-                modelName: 'base.en', // Ensure model is available
-            });
-            extractedText = result.transcription || JSON.stringify(result);
-        } catch (e) {
-            console.error("Whisper error", e);
-            extractedText = "Error transcribing audio. Ensure Whisper is installed locally.";
-        }
-      }
-
-      // Cleanup uploaded file
-      fs.unlinkSync(filePath);
-    } else {
-      return res.status(400).json({ error: 'No file or YouTube URL provided' });
     }
 
-    // Process for RAG
-    const embeddingResult = await processTextForEmbeddings(extractedText, metadata);
+    // 2. Handle Files (if provided)
+    if (files && files.length > 0) {
+      for (const file of files) {
+        let extractedText = '';
+        let metadata = { source: file.originalname };
+        let success = true;
+        let errorMsg = '';
+
+        try {
+            const filePath = file.path;
+
+            if (file.mimetype === 'application/pdf') {
+                const dataBuffer = fs.readFileSync(filePath);
+                const data = await pdfParse(dataBuffer);
+                extractedText = data.text;
+            } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+                // PPTX
+                try {
+                    const parser = new pptxParser(filePath);
+                    const result: any = await parser.parse();
+                    extractedText = result.text || JSON.stringify(result);
+                } catch (e) {
+                    console.error("PPTX parse error", e);
+                    extractedText = "Error parsing PPTX";
+                    success = false;
+                    errorMsg = "PPTX parse error";
+                }
+            } else if (file.mimetype.startsWith('image/')) {
+                // Image (Tesseract)
+                try {
+                   const { data: { text } } = await Tesseract.recognize(filePath, 'eng');
+                   extractedText = text;
+                } catch(e) {
+                   console.error("OCR error", e);
+                   success = false;
+                   errorMsg = "OCR failed";
+                }
+            } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
+                // Audio (Whisper)
+                try {
+                    const result: any = await (nodewhisper as any)(filePath, {
+                        modelName: 'base.en', // Ensure model is available
+                    });
+                    extractedText = result.transcription || JSON.stringify(result);
+                } catch (e) {
+                    console.error("Whisper error", e);
+                    extractedText = "Error transcribing audio. Ensure Whisper is installed locally.";
+                    success = false;
+                    errorMsg = "Whisper transcription failed";
+                }
+            } else {
+                 // Try treating as plain text for unknown types if possible, or skip
+                 success = false;
+                 errorMsg = `Unsupported file type: ${file.mimetype}`;
+            }
+
+            // Cleanup uploaded file
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+            if (success && extractedText) {
+                const embeddingResult = await processTextForEmbeddings(extractedText, metadata);
+                results.push({ source: file.originalname, type: 'file', success: true, ...embeddingResult });
+            } else {
+                results.push({ source: file.originalname, type: 'file', success: false, error: errorMsg || "Extraction failed" });
+            }
+
+        } catch (e: any) {
+            console.error(`Error processing file ${file.originalname}:`, e);
+            results.push({ source: file.originalname, type: 'file', success: false, error: e.message });
+            // ensure cleanup even on error
+            if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      return res.status(400).json({ error: 'No files or YouTube URL provided' });
+    }
 
     res.json({
-      message: 'Content processed successfully',
-      extractedTextLength: extractedText.length,
-      embeddingResult,
+      message: `Processed ${results.length} items.`,
+      results,
     });
 
   } catch (error: any) {

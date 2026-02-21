@@ -177,4 +177,39 @@ router.post('/explain', async (req, res) => {
   }
 });
 
+// Chat Endpoint
+router.post('/chat', async (req, res) => {
+    try {
+      const { message, topic } = req.body;
+      if (!message) return res.status(400).json({ error: 'Message is required' });
+
+      // Retrieve local context based on the message + topic
+      const query = `${topic} ${message}`;
+      const localContext = await getRelevantContext(query);
+
+      const systemPrompt = await getSystemPrompt("You are an interactive tutor. Answer the student's question directly.");
+
+      const prompt = `
+        Current Topic: ${topic}
+        Context from Uploaded Notes:
+        ${localContext || "No specific notes found."}
+
+        Student Question: ${message}
+
+        Answer the question clearly and concisely. If the answer is in the Context from Uploaded Notes, explicitly mention "According to your notes...".
+        If not, use your general knowledge.
+      `;
+
+      const response = await llm.invoke([
+         new SystemMessage(systemPrompt),
+         new HumanMessage(prompt)
+      ]);
+
+      res.json({ reply: response.content });
+    } catch (error: any) {
+      console.error('Chat error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
 export default router;

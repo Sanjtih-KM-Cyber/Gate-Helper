@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, BookOpen, Plus, Activity } from 'lucide-react';
+import { ArrowLeft, BookOpen, Plus, Activity, BrainCircuit } from 'lucide-react';
 
 interface Subject {
   _id: string;
@@ -12,18 +12,29 @@ interface Subject {
 export default function SubjectDetail() {
   const { id } = useParams<{ id: string }>();
   const [subject, setSubject] = useState<Subject | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [newTopic, setNewTopic] = useState('');
 
   useEffect(() => {
-    fetchSubject();
+    fetchSubjectWithSyllabus();
   }, [id]);
 
-  const fetchSubject = async () => {
+  const fetchSubjectWithSyllabus = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get(`http://localhost:5000/api/subjects/${id}`);
+      // First, try to get the subject normally
+      const res = await axios.get(`http://localhost:5000/api/subjects/${id}/syllabus`);
       setSubject(res.data);
     } catch (err) {
       console.error(err);
+      // Fallback: If AI fails, try normal fetch
+      try {
+          const res = await axios.get(`http://localhost:5000/api/subjects/${id}`);
+          setSubject(res.data);
+      } catch (e) { console.error(e); }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,13 +43,26 @@ export default function SubjectDetail() {
     try {
       await axios.post(`http://localhost:5000/api/subjects/${id}/topics`, { topic: newTopic });
       setNewTopic('');
-      fetchSubject();
+      // Refresh just by appending locally to avoid full reload
+      if (subject) {
+          setSubject({ ...subject, topics: [...subject.topics, newTopic] });
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  if (!subject) return <div className="text-gray-500 animate-pulse">Loading subject...</div>;
+  if (loading) {
+      return (
+          <div className="flex flex-col items-center justify-center h-96 text-gray-500 animate-pulse">
+              <BrainCircuit size={48} className="mb-4 text-blue-500" />
+              <p className="text-xl font-medium">Analyzing Subject & Generating Syllabus...</p>
+              <p className="text-sm mt-2">This might take a moment with local AI.</p>
+          </div>
+      );
+  }
+
+  if (!subject) return <div className="text-red-500">Subject not found.</div>;
 
   return (
     <div className="space-y-8">
@@ -58,8 +82,8 @@ export default function SubjectDetail() {
           <div className="flex space-x-2">
              <input
                type="text"
-               placeholder="New Topic..."
-               className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-white focus:outline-none focus:border-blue-500"
+               placeholder="Add Custom Topic..."
+               className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-white focus:outline-none focus:border-blue-500 placeholder-gray-500"
                value={newTopic}
                onChange={(e) => setNewTopic(e.target.value)}
                onKeyDown={(e) => e.key === 'Enter' && addTopic()}
@@ -77,13 +101,13 @@ export default function SubjectDetail() {
                key={idx}
                className="group p-4 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 rounded-lg transition-all flex justify-between items-center"
              >
-               <span className="font-medium text-gray-300 group-hover:text-white truncate pr-2">{topic}</span>
+               <span className="font-medium text-gray-300 group-hover:text-white truncate pr-2" title={topic}>{topic}</span>
                <Activity size={16} className="text-gray-600 group-hover:text-blue-400" />
              </Link>
            ))}
            {subject.topics.length === 0 && (
              <div className="col-span-full text-center py-10 text-gray-500 border-2 border-dashed border-gray-800 rounded-lg">
-               No topics added yet. Start building your roadmap!
+               No topics found. Try refreshing to trigger AI generation again.
              </div>
            )}
         </div>
