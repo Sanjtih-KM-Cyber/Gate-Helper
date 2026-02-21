@@ -4,6 +4,9 @@ import cors from 'cors';
 import compression from 'compression';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Routes
 import uploadRoutes from './routes/upload.ts';

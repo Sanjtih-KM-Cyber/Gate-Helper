@@ -12,17 +12,19 @@ const router = express.Router();
 
 // Initialize Local Ollama Models
 const llm = new ChatOllama({
-  model: 'llama3.2',
+  model: 'qwen2.5-coder:3b',
   baseUrl: 'http://localhost:11434',
   temperature: 0, // Zero temperature to reduce hallucinations
   format: 'json', // Enforce JSON output mode
+  maxRetries: 2,
 });
 
 // Code Assistant Model (Qwen)
 const codeLlm = new ChatOllama({
-  model: 'qwen3-coder:30b', // Target model as requested
+  model: 'qwen2.5-coder:3b', // Target model as requested
   baseUrl: 'http://localhost:11434',
   temperature: 0.2, // Lower temperature for code
+  maxRetries: 2,
 });
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });

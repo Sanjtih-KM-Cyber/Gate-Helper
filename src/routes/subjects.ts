@@ -10,15 +10,18 @@ const pdfParse = require('pdf-parse');
 import { Subject, ISubject, IUnit } from '../models/Subject.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { jsonrepair } from 'jsonrepair';
 
 const router = express.Router();
 const upload = multer({ dest: 'uploads/' });
 
 // Initialize Local Ollama Model
 const llm = new ChatOllama({
-  model: 'llama3.2',
+  model: 'qwen2.5-coder:3b',
   baseUrl: 'http://localhost:11434',
-  temperature: 0.3,
+  temperature: 0,
+  format: 'json',
+  maxRetries: 2,
 });
 
 // Helper: Parse Files
@@ -44,13 +47,24 @@ async function parseFile(file: Express.Multer.File): Promise<string> {
   return text;
 }
 
-// Helper: JSON Extractor
+// Helper: Robust JSON Extractor using jsonrepair
 function extractJSON(text: string): any {
   let cleanContent = text.trim();
-  if (cleanContent.startsWith('```json')) cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  else if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  cleanContent = cleanContent.replace(/,\s*([\]}])/g, '$1');
-  return JSON.parse(cleanContent);
+  // Strip markdown code blocks if present
+  if (cleanContent.startsWith('```json')) {
+      cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  } else if (cleanContent.startsWith('```')) {
+      cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+
+  try {
+      // Use jsonrepair to fix common issues (missing quotes, trailing commas, etc.)
+      const repaired = jsonrepair(cleanContent);
+      return JSON.parse(repaired);
+  } catch (e) {
+      console.error("JSON Repair/Parse Failed on content:", cleanContent);
+      return []; // Return empty array or object as safe fallback depending on context, but let caller handle structure check
+  }
 }
 
 router.get('/', async (req, res) => {
@@ -105,7 +119,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
       combinedText += `\n--- File: ${file.originalname} ---\n${text}`;
     }
 
-    const systemPrompt = `You are an academic assistant. Extract a structured syllabus from course documents.`;
+    const systemPrompt = `You are an academic assistant. Extract a structured syllabus from course documents. You must output ONLY valid JSON. Do not include any conversational text, introductions, or formatting outside of the JSON block.`;
     const userPrompt = `
       Subject: ${name}
       Category: ${category}
@@ -125,6 +139,9 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
     let syllabusData: { syllabus: IUnit[] };
     try {
       syllabusData = extractJSON(response.content.toString());
+      if (!syllabusData || !syllabusData.syllabus) {
+          throw new Error("Invalid structure");
+      }
     } catch (e) {
       console.error('Failed to parse AI syllabus:', e);
       syllabusData = { syllabus: [{ title: 'Overview', topics: [{ name: 'Introduction', status: 'Not Started', confidence: 'Red' }] }] };
@@ -160,7 +177,7 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
     console.log(`Parsing Lab Manual for: ${subject.name}`);
     const text = await parseFile(file);
 
-    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments from this lab manual.`;
+    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments from this lab manual. You must output ONLY valid JSON.`;
     const userPrompt = `
       Manual Text:
       ${text.substring(0, 20000)}
@@ -255,7 +272,8 @@ router.post('/gate-prep', async (req, res) => {
     const systemPrompt = `You are an expert GATE Exam Tutor.
     IMPORTANT:
     Every topic MUST have a status of exactly 'Not Started'.
-    Every topic MUST have a confidence of exactly 'Red'.`;
+    Every topic MUST have a confidence of exactly 'Red'.
+    You must output ONLY valid JSON. Do not include any conversational text.`;
 
     const userPrompt = `
       Subject: ${name}
@@ -319,6 +337,7 @@ router.post('/gate-upload', upload.single('file'), async (req, res) => {
 
     const systemPrompt = `You are a data extraction AI. Extract structured syllabus data from the provided text.
     The text contains syllabus for one or multiple GATE subjects.
+    You must output ONLY valid JSON. Do not include any conversational text, introductions, or formatting outside of the JSON block.
 
     Task: Return a strict JSON object with this structure:
     {
@@ -351,7 +370,7 @@ router.post('/gate-upload', upload.single('file'), async (req, res) => {
       return res.status(500).json({ error: 'Failed to extract syllabus structure from AI response.' });
     }
 
-    if (!extractedData.subjects || !Array.isArray(extractedData.subjects)) {
+    if (!extractedData || !extractedData.subjects || !Array.isArray(extractedData.subjects)) {
         return res.status(400).json({ error: 'Invalid AI response structure.' });
     }
 
