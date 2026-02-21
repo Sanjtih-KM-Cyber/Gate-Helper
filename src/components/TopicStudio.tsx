@@ -471,7 +471,7 @@ export default function TopicStudio() {
                  <BrainCircuit size={16}/> <span>Infinite Exam</span>
               </button>
               <button onClick={() => setActiveTab('mistakes')} className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${activeTab === 'mistakes' ? 'bg-gray-800 text-white border-b-2 border-orange-500' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                 <AlertTriangle size={16}/> <span>Mistake Vault</span>
+                 <AlertTriangle size={16}/> <span>Learning Vault</span>
               </button>
            </div>
 
@@ -557,8 +557,8 @@ export default function TopicStudio() {
 
               {activeTab === 'mistakes' && (
                  <div className="p-6 overflow-y-auto h-full scrollbar-thin scrollbar-thumb-gray-700">
-                    <h2 className="text-xl font-bold text-white mb-6 flex items-center"><AlertTriangle className="mr-2 text-orange-500" size={24}/> Contextual Mistakes</h2>
-                    {loadingMistakes ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-500"/></div> : mistakes.length === 0 ? <div className="text-center py-20 text-gray-500 border-2 border-dashed border-gray-800 rounded-xl">No logged mistakes for this topic. Great job!</div> : <div className="space-y-4">{mistakes.map((m) => (<div key={m._id} className="bg-gray-800/50 border border-red-900/30 p-4 rounded-xl hover:border-red-500/30 transition-colors"><p className="font-medium text-white mb-2">{m.question}</p><div className="text-sm text-red-400 mb-1">Your Answer: {m.userAnswer}</div><div className="text-sm text-green-400">Correct: {m.correctAnswer}</div></div>))}</div>}
+                    <h2 className="text-xl font-bold text-white mb-6 flex items-center"><AlertTriangle className="mr-2 text-orange-500" size={24}/> Learning Vault</h2>
+                    {loadingMistakes ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-500"/></div> : mistakes.length === 0 ? <div className="text-center py-20 text-gray-500 border-2 border-dashed border-gray-800 rounded-xl">No learning items for this topic. Great job!</div> : <div className="space-y-4">{mistakes.map((m) => (<div key={m._id} className="bg-gray-800/50 border border-red-900/30 p-4 rounded-xl hover:border-red-500/30 transition-colors"><p className="font-medium text-white mb-2">{m.question}</p><div className="text-sm text-red-400 mb-1">Your Answer: {m.userAnswer}</div><div className="text-sm text-green-400">Correct: {m.correctAnswer}</div></div>))}</div>}
                  </div>
               )}
            </div>
