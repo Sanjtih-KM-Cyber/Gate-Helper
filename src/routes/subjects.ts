@@ -181,13 +181,19 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
     console.log(`Parsing Lab Manual for: ${subject.name}`);
     const text = await parseFile(file);
 
-    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments from this lab manual. You must output ONLY valid JSON.`;
+    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments and their source code from this lab manual. You must output ONLY valid JSON.`;
     const userPrompt = `
       Manual Text:
       ${text.substring(0, 20000)}
 
-      Task: Structure the experiments into Main Experiments (Units) and Sub-Experiments (Topics).
-      Example: Main: 'Experiment 1: Input/Output', Sub: '1(a) Read Input', '1(b) Print Output'.
+      Task:
+      1. Structure the experiments into Main Experiments (Units) and Sub-Experiments (Topics).
+      2. EXTRACT THE SOURCE CODE for each experiment if available in the text. Look for blocks of code (C, C++, Java, Python, etc.) associated with the experiment.
+      3. If no code is found for a topic, leave the 'code' field as null or empty string.
+
+      Example:
+      Main: 'Experiment 1: Input/Output'
+      Sub: '1(a) Read Input' (with C code to read input)
 
       Return JSON:
       {
@@ -195,7 +201,12 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
           {
             "title": "Experiment 1: Name",
             "topics": [
-               { "name": "1(a) Sub Experiment Name", "status": "Not Started", "confidence": "Red" }
+               {
+                 "name": "1(a) Sub Experiment Name",
+                 "status": "Not Started",
+                 "confidence": "Red",
+                 "code": "#include <stdio.h>\\nint main() { ... }"
+               }
             ]
           }
         ]
