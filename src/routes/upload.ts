@@ -4,7 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+// PDFParse v2+ Import
+import { PDFParse } from 'pdf-parse';
 const pptxParser = require('node-pptx-parser');
 const nodewhisper = require('nodejs-whisper');
 
@@ -67,8 +68,10 @@ router.post('/', upload.array('files'), async (req, res) => {
 
             if (file.mimetype === 'application/pdf') {
                 const dataBuffer = fs.readFileSync(filePath);
-                const data = await pdfParse(dataBuffer);
-                extractedText = data.text;
+                const parser = new PDFParse({ data: dataBuffer });
+                const result = await parser.getText();
+                extractedText = result.text;
+                await parser.destroy();
             } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
                 // PPTX
                 try {
