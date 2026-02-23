@@ -180,32 +180,38 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
 
     console.log(`Parsing Lab Manual for: ${subject.name}`);
     const text = await parseFile(file);
+    // console.log("Extracted PDF Text Length:", text.length);
 
-    const systemPrompt = `You are an expert lab assistant. Extract the list of experiments and their source code from this lab manual. You must output ONLY valid JSON.`;
+    const systemPrompt = `You are an expert lab assistant and programmer. Your goal is to extract a structured list of experiments AND their corresponding source code from the provided lab manual.
+
+    CRITICAL INSTRUCTIONS FOR CODE EXTRACTION:
+    1. You MUST extract the full source code for each experiment.
+    2. The 'code' field MUST be a valid JSON string.
+    3. You MUST escape all newlines in the code as '\\n'.
+    4. You MUST escape all double quotes in the code as '\"'.
+    5. If there are multiple files or blocks for one experiment, combine them into one string separated by '\\n//--- Next File ---\\n'.
+    6. Do NOT summarize the code. Copy it exactly as it appears in the text.
+
+    Output ONLY valid JSON. No conversational text.`;
+
     const userPrompt = `
-      Manual Text:
-      ${text.substring(0, 20000)}
+      Manual Text (Snippet):
+      ${text.substring(0, 25000)}
 
       Task:
-      1. Structure the experiments into Main Experiments (Units) and Sub-Experiments (Topics).
-      2. EXTRACT THE SOURCE CODE for each experiment if available in the text. Look for blocks of code (C, C++, Java, Python, etc.) associated with the experiment.
-      3. If no code is found for a topic, leave the 'code' field as null or empty string.
+      Extract experiments and code into the structure below.
 
-      Example:
-      Main: 'Experiment 1: Input/Output'
-      Sub: '1(a) Read Input' (with C code to read input)
-
-      Return JSON:
+      Structure:
       {
         "syllabus": [
           {
-            "title": "Experiment 1: Name",
+            "title": "Experiment Unit Name",
             "topics": [
                {
-                 "name": "1(a) Sub Experiment Name",
+                 "name": "Experiment Name",
                  "status": "Not Started",
                  "confidence": "Red",
-                 "code": "#include <stdio.h>\\nint main() { ... }"
+                 "code": "#include <stdio.h>\\n\\nint main() {\\n    printf(\\\"Hello\\\");\\n    return 0;\\n}"
                }
             ]
           }
@@ -213,15 +219,23 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
       }
     `;
 
+    console.log("Sending Lab Manual to LLM...");
     const response = await llm.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(userPrompt)
     ]);
 
+    // console.log("LLM Response Length:", response.content.toString().length);
+
     let parsedData;
     try {
       parsedData = extractJSON(response.content.toString());
+      // console.log("Parsed Syllabus Units:", parsedData.syllabus?.length);
+      // if (parsedData.syllabus?.[0]?.topics?.[0]) {
+      //    console.log("Sample Code Snippet:", parsedData.syllabus[0].topics[0].code?.substring(0, 50));
+      // }
     } catch (e) {
+      console.error("JSON Parse Error on Lab Manual:", e);
       return res.status(500).json({ error: 'Failed to parse lab manual structure' });
     }
 
