@@ -88,7 +88,7 @@ router.get('/:id', async (req, res) => {
 router.post('/college-prep', upload.array('files'), async (req, res) => {
   try {
     // Default to 'College Prep' if category not provided, but allow override (e.g. 'GATE Prep')
-    const { name, description, type = 'Theory', category = 'College Prep' } = req.body;
+    const { name, description, type = 'Theory', category = 'College Prep', semester = 1 } = req.body;
     const files = req.files as Express.Multer.File[];
 
     if (!name) return res.status(400).json({ error: 'Subject name is required' });
@@ -99,6 +99,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
           name,
           description,
           category, // Use dynamic category
+          semester, // Save semester
           type: 'Lab',
           syllabus: []
        });
@@ -149,6 +150,7 @@ router.post('/college-prep', upload.array('files'), async (req, res) => {
       name,
       description,
       category, // Use dynamic category
+      semester, // Save semester
       type: 'Theory',
       syllabus: syllabusData.syllabus || []
     });
@@ -338,18 +340,20 @@ router.post('/gate-upload', upload.array('files'), async (req, res) => {
       combinedText += `\n--- File: ${file.originalname} ---\n${text}`;
     }
 
-    const systemPrompt = `You are a data extraction AI. Extract structured syllabus data from the provided text.
-    The text contains syllabus for one or multiple GATE subjects.
-    You must output ONLY valid JSON. Do not include any conversational text, introductions, or formatting outside of the JSON block.
+    const systemPrompt = `You are a precise data extraction AI. extract structured syllabus data from the provided text.
+    The text contains syllabus content for one or multiple subjects.
 
-    Task: Return a strict JSON object with this structure:
+    CRITICAL INSTRUCTION: Output ONLY valid JSON. Do not include any conversational text, introductions, markdown backticks, or formatting outside of the JSON block.
+
+    Task: Extract subjects, units, and topics.
+    Structure:
     {
       "subjects": [
         {
-          "name": "Subject Name",
+          "name": "Exact Subject Name from text",
           "syllabus": [
              {
-               "title": "Unit Name",
+               "title": "Unit 1: Name",
                "topics": [ { "name": "Topic 1" }, { "name": "Topic 2" } ]
              }
           ]
@@ -357,7 +361,8 @@ router.post('/gate-upload', upload.array('files'), async (req, res) => {
       ]
     }
 
-    Ignore non-syllabus text.
+    If the text contains only one subject, wrap it in the "subjects" array.
+    Ignore administrative text like "Total Marks", "Hours", etc. Focus on the Topics.
     `;
 
     const response = await llm.invoke([

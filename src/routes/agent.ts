@@ -29,16 +29,35 @@ const codeLlm = new ChatOllama({
 
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
 
-async function getSystemPrompt(baseInstruction: string) {
+async function getSystemPrompt(baseInstruction: string, category: string = 'GATE Prep') {
   try {
     const settings = await Settings.findOne();
+    // If settings exist and custom persona is set, use it (could be enhanced to support dual personas later)
     if (settings && settings.aiPersona) {
       return `${settings.aiPersona}\n\n${baseInstruction}`;
     }
   } catch (e) {
     console.error("Failed to fetch settings", e);
   }
-  return `You are an expert GATE exam tutor.\n\n${baseInstruction}`;
+
+  // Default Personas based on Category
+  if (category === 'College Prep') {
+      return `You are a patient and academic College Professor.
+      Your goal is to help students understand concepts deeply for their semester exams.
+      - Explain concepts step-by-step with clear definitions and examples.
+      - Use a supportive and educational tone.
+      - Focus on theory, derivations, and standard textbook explanations.
+
+      ${baseInstruction}`;
+  } else {
+      return `You are a strategic GATE Exam Coach.
+      Your goal is to help students crack the exam with high scores.
+      - Focus on problem-solving, shortcuts, and key formulas.
+      - Be concise, direct, and exam-oriented.
+      - Highlight common pitfalls and "tricks" used in GATE questions.
+
+      ${baseInstruction}`;
+  }
 }
 
 // Helper: Robust JSON Extractor using jsonrepair
@@ -204,7 +223,7 @@ router.post('/questions', async (req, res) => {
         `;
     }
 
-    const systemPrompt = await getSystemPrompt(systemInstruction);
+    const systemPrompt = await getSystemPrompt(systemInstruction, prepType === 'College' ? 'College Prep' : 'GATE Prep');
     let prompt = `
       Topic: ${topic}
 
@@ -339,7 +358,7 @@ router.post('/visualize', async (req, res) => {
     if (!concept) return res.status(400).json({ error: 'Concept is required' });
 
     const localContext = await getRelevantContext(concept);
-    const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.");
+    const systemPrompt = await getSystemPrompt("You are a technical diagram generator using Mermaid.js.", "GATE Prep");
 
     const prompt = `
       Context: ${localContext || "No specific notes found."}
@@ -380,13 +399,13 @@ router.post('/visualize', async (req, res) => {
 // Chat / Explain
 router.post('/chat', async (req, res) => {
     try {
-      const { message, topic, mode = 'standard' } = req.body;
+      const { message, topic, mode = 'standard', category = 'GATE Prep' } = req.body;
       if (!message) return res.status(400).json({ error: 'Message is required' });
 
       const localContext = await getRelevantContext(`${topic} ${message}`);
       let searchResults = '';
       try {
-          searchResults = await searchTool.invoke(`GATE ${topic} ${message}`);
+          searchResults = await searchTool.invoke(`${category} ${topic} ${message}`);
       } catch(e) {
           console.log("Search failed for chat context");
       }
@@ -397,7 +416,7 @@ router.post('/chat', async (req, res) => {
       }
 
       // Fetch settings and apply to system prompt
-      const finalSystemPrompt = await getSystemPrompt(systemInstruction);
+      const finalSystemPrompt = await getSystemPrompt(systemInstruction, category);
 
       const prompt = `
         Current Topic: ${topic}
@@ -425,18 +444,18 @@ router.post('/chat', async (req, res) => {
 
 router.post('/explain', async (req, res) => {
   try {
-    const { topic } = req.body;
+    const { topic, category = 'GATE Prep' } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required' });
 
     const localContext = await getRelevantContext(topic);
     let searchResults = '';
     try {
-        searchResults = await searchTool.invoke(`${topic} GATE computer science explanation tutorial`);
+        searchResults = await searchTool.invoke(`${topic} ${category} computer science explanation tutorial`);
     } catch(e) {
         console.log("Search failed for explanation context");
     }
 
-    const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.");
+    const systemPrompt = await getSystemPrompt("You are an expert tutor explaining concepts clearly.", category);
     const prompt = `
       Context:
       ${localContext || "No specific notes found."}
