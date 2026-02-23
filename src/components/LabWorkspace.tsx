@@ -24,15 +24,20 @@ interface Subject {
   syllabus: Unit[];
 }
 
+interface ChatMessage {
+    role: 'user' | 'ai';
+    content: string;
+}
+
 export default function LabWorkspace({ subject }: { subject: Subject }) {
   const { id } = useParams<{ id: string }>();
   const [activeExperiment, setActiveExperiment] = useState<string | null>(null);
   const [code, setCode] = useState('// Select an experiment or paste code here...');
-  const [output, setOutput] = useState('');
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
 
-  // Chat State
-  const [chatHistory, setChatHistory] = useState<{role: 'user' | 'ai', content: string}[]>([]);
+  // Chat State - Now keyed by experiment name
+  const [allChats, setAllChats] = useState<Record<string, ChatMessage[]>>({});
+  const [currentChat, setCurrentChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [loadingAi, setLoadingAi] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -44,8 +49,8 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   const [uploading, setUploading] = useState(false);
   const [manualFile, setManualFile] = useState<File | null>(null);
 
+  // Initialize
   useEffect(() => {
-      // Default to first experiment if available
       if (subject.syllabus.length > 0 && subject.syllabus[0].topics.length > 0) {
           const firstTopic = subject.syllabus[0].topics[0];
           setActiveExperiment(firstTopic.name);
@@ -54,9 +59,17 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       }
   }, [subject]);
 
+  // Sync Current Chat with Active Experiment
+  useEffect(() => {
+      if (activeExperiment) {
+          setCurrentChat(allChats[activeExperiment] || []);
+      }
+  }, [activeExperiment, allChats]);
+
+  // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory, loadingAi]);
+  }, [currentChat, loadingAi, aiPanelOpen]);
 
   const toggleUnit = (title: string) => {
       setExpandedUnits(prev => ({ ...prev, [title]: !prev[title] }));
@@ -87,17 +100,29 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       }
   };
 
+  const updateChatHistory = (newMessage: ChatMessage) => {
+      if (!activeExperiment) return;
+
+      setAllChats(prev => {
+          const experimentHistory = prev[activeExperiment] || [];
+          return {
+              ...prev,
+              [activeExperiment]: [...experimentHistory, newMessage]
+          };
+      });
+  };
+
   const handleAiAssist = async (action: 'explain' | 'shorten' | 'comment' | 'chat', message?: string) => {
       setLoadingAi(true);
       if (!aiPanelOpen) setAiPanelOpen(true);
 
       // Add user message to history if chat
       if (action === 'chat' && message) {
-          setChatHistory(prev => [...prev, { role: 'user', content: message }]);
+          updateChatHistory({ role: 'user', content: message });
           setChatInput('');
       } else if (action !== 'chat') {
-          // Clear history for new major actions to focus context
-          setChatHistory([{ role: 'user', content: `Request: ${action} this code.` }]);
+          // Add system-like user action to history
+          updateChatHistory({ role: 'user', content: `Request: ${action} this code.` });
       }
 
       try {
@@ -107,9 +132,9 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
               language: 'c', // Defaulting to C for labs
               message: message
           });
-          setChatHistory(prev => [...prev, { role: 'ai', content: res.data.result }]);
+          updateChatHistory({ role: 'ai', content: res.data.result });
       } catch (err) {
-          setChatHistory(prev => [...prev, { role: 'ai', content: "AI Assistant failed to respond. Ensure backend is running." }]);
+          updateChatHistory({ role: 'ai', content: "AI Assistant failed to respond. Ensure backend is running." });
       } finally {
           setLoadingAi(false);
       }
@@ -129,38 +154,40 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] bg-gray-950 overflow-hidden">
+    <div className="flex h-screen bg-gray-950 overflow-hidden text-white font-sans">
       {/* Sidebar: Experiment List */}
-      <div className="w-72 bg-gray-900 border-r border-gray-800 flex flex-col">
-          <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-              <h2 className="font-bold text-white flex items-center"><FlaskConical size={18} className="mr-2 text-purple-500"/> Experiments</h2>
-              <button onClick={() => setShowUpload(true)} className="text-xs bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-300" title="Upload Manual"><Upload size={14}/></button>
+      <div className="w-1/5 min-w-[250px] bg-[#111827] border-r border-gray-800 flex flex-col scrollbar-hide">
+          <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-[#1f2937]">
+              <h2 className="font-bold text-gray-100 flex items-center text-sm uppercase tracking-wide">
+                  <FlaskConical size={16} className="mr-2 text-purple-500"/> Lab Experiments
+              </h2>
+              <button onClick={() => setShowUpload(true)} className="bg-gray-700 hover:bg-gray-600 p-1.5 rounded-lg transition-colors" title="Upload Manual"><Upload size={14}/></button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-hide">
               {subject.syllabus.length === 0 ? (
                   <div className="text-center py-10 px-4">
-                      <p className="text-gray-500 text-sm mb-4">No experiments found.</p>
-                      <button onClick={() => setShowUpload(true)} className="text-purple-400 hover:text-purple-300 text-sm underline">Upload Lab Manual</button>
+                      <p className="text-gray-500 text-xs mb-4">No experiments found.</p>
+                      <button onClick={() => setShowUpload(true)} className="text-purple-400 hover:text-purple-300 text-xs font-medium underline">Upload Lab Manual</button>
                   </div>
               ) : (
                   subject.syllabus.map((unit) => (
-                      <div key={unit.title}>
+                      <div key={unit.title} className="mb-2">
                           <button
                               onClick={() => toggleUnit(unit.title)}
-                              className="w-full flex items-center justify-between p-2 text-sm text-gray-300 hover:bg-gray-800 rounded transition-colors text-left"
+                              className="w-full flex items-center justify-between p-3 text-sm font-medium text-gray-300 hover:bg-gray-800/50 rounded-lg transition-colors text-left group"
                           >
-                              <span className="font-medium truncate">{unit.title}</span>
-                              {expandedUnits[unit.title] ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                              <span className="truncate group-hover:text-white transition-colors">{unit.title}</span>
+                              {expandedUnits[unit.title] ? <ChevronDown size={14} className="text-gray-500"/> : <ChevronRight size={14} className="text-gray-500"/>}
                           </button>
 
                           {expandedUnits[unit.title] && (
-                              <div className="ml-2 pl-2 border-l border-gray-800 mt-1 space-y-1">
+                              <div className="ml-3 pl-3 border-l border-gray-800 mt-1 space-y-1">
                                   {unit.topics.map(topic => (
                                       <button
                                           key={topic.name}
                                           onClick={() => handleTopicClick(topic)}
-                                          className={`w-full text-left p-2 text-xs rounded transition-colors truncate ${activeExperiment === topic.name ? 'bg-purple-900/30 text-purple-300 border border-purple-500/30' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'}`}
+                                          className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-all truncate border border-transparent ${activeExperiment === topic.name ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'}`}
                                       >
                                           {topic.name}
                                       </button>
@@ -174,56 +201,64 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       </div>
 
       {/* Main Area */}
-      <div className="flex-1 flex flex-col relative">
+      <div className="flex-1 flex flex-col relative min-w-0">
           {/* Toolbar */}
-          <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-4">
-              <div className="text-sm font-medium text-gray-300 truncate max-w-md">
-                  {activeExperiment || "Select an experiment"}
+          <div className="h-14 bg-[#1f2937] border-b border-gray-800 flex items-center justify-between px-6 shadow-sm z-20">
+              <div className="flex items-center space-x-4 overflow-hidden">
+                  <Link to={`/subject/${id}`} className="text-gray-400 hover:text-white transition-colors"><ArrowLeft size={20}/></Link>
+                  <h1 className="text-sm font-bold text-gray-100 truncate max-w-lg tracking-wide">
+                      {activeExperiment || "Select an Experiment"}
+                  </h1>
               </div>
-              <div className="flex items-center space-x-2">
-                  <button onClick={saveCode} className="flex items-center space-x-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded transition-colors">
-                      <Save size={14}/> <span>Save</span>
+              <div className="flex items-center space-x-3">
+                  <button onClick={saveCode} className="flex items-center space-x-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-900/20">
+                      <Save size={14}/> <span>Save Code</span>
                   </button>
-                  <div className="h-4 w-px bg-gray-700 mx-2"></div>
-                  <button onClick={() => handleAiAssist('explain')} className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">Explain</button>
-                  <button onClick={() => handleAiAssist('shorten')} className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">Refactor</button>
-                  <button onClick={() => handleAiAssist('comment')} className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">Docs</button>
-                  <button onClick={() => setAiPanelOpen(!aiPanelOpen)} className={`p-1.5 rounded transition-colors ${aiPanelOpen ? 'bg-purple-900/50 text-purple-300' : 'text-gray-400 hover:text-white'}`}>
-                      {aiPanelOpen ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}
+                  <div className="h-6 w-px bg-gray-700 mx-2"></div>
+                  <div className="flex bg-gray-800 rounded-lg p-1">
+                      <button onClick={() => handleAiAssist('explain')} className="text-xs font-medium text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors">Explain</button>
+                      <button onClick={() => handleAiAssist('shorten')} className="text-xs font-medium text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors">Refactor</button>
+                      <button onClick={() => handleAiAssist('comment')} className="text-xs font-medium text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors">Docs</button>
+                  </div>
+                  <button onClick={() => setAiPanelOpen(!aiPanelOpen)} className={`p-2 rounded-lg transition-colors ${aiPanelOpen ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                      {aiPanelOpen ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
                   </button>
               </div>
           </div>
 
           <div className="flex-1 flex overflow-hidden">
-              {/* Code Editor (Simple Textarea for now, ideally Monaco) */}
-              <div className="flex-1 bg-[#1e1e1e] relative">
+              {/* Code Editor */}
+              <div className="flex-1 bg-[#0d1117] relative flex flex-col">
                   <textarea
-                      className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-4 resize-none focus:outline-none"
+                      className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-6 resize-none focus:outline-none leading-relaxed scrollbar-hide"
                       value={code}
                       onChange={e => setCode(e.target.value)}
                       spellCheck="false"
                   />
               </div>
 
-              {/* AI Panel */}
+              {/* AI Panel - Expanded Width & Better UI */}
               {aiPanelOpen && (
-                  <div className="w-1/3 min-w-[300px] bg-gray-900 border-l border-gray-800 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl z-10">
-                      <div className="p-3 border-b border-gray-800 font-bold text-gray-300 text-xs uppercase tracking-wider flex items-center justify-between">
-                          <div className="flex items-center"><Code size={14} className="mr-2"/> AI Assistant</div>
-                          <button onClick={() => setAiPanelOpen(false)} className="text-gray-500 hover:text-white"><Minimize2 size={14}/></button>
+                  <div className="w-[40%] min-w-[350px] bg-[#111827] border-l border-gray-800 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl z-10">
+                      <div className="p-4 border-b border-gray-800 bg-[#1f2937] flex items-center justify-between">
+                          <div className="flex items-center font-bold text-gray-100 text-sm tracking-wide">
+                              <Code size={16} className="mr-2 text-purple-400"/> AI Copilot
+                          </div>
+                          <button onClick={() => setAiPanelOpen(false)} className="text-gray-500 hover:text-white transition-colors"><Minimize2 size={16}/></button>
                       </div>
 
-                      <div className="flex-1 p-4 overflow-y-auto text-sm text-gray-300 space-y-4">
-                          {chatHistory.length === 0 && !loadingAi && (
-                              <div className="text-center text-gray-600 mt-10">
-                                  Select an action from the toolbar or ask a question below.
+                      <div className="flex-1 p-6 overflow-y-auto space-y-6 scrollbar-hide bg-[#111827]">
+                          {currentChat.length === 0 && !loadingAi && (
+                              <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-4">
+                                  <div className="bg-gray-800 p-4 rounded-full"><Code size={32} className="text-purple-500"/></div>
+                                  <p className="text-sm font-medium">Ready to assist! Ask me anything about your code.</p>
                               </div>
                           )}
 
-                          {chatHistory.map((msg, idx) => (
+                          {currentChat.map((msg, idx) => (
                               <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                  <div className={`max-w-[90%] rounded-lg p-3 ${msg.role === 'user' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-200 border border-gray-700'}`}>
-                                      <div className="prose prose-invert prose-sm max-w-none break-words">
+                                  <div className={`max-w-[90%] rounded-2xl px-5 py-4 shadow-sm ${msg.role === 'user' ? 'bg-purple-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-200 border border-gray-700 rounded-bl-sm'}`}>
+                                      <div className="prose prose-invert prose-sm max-w-none break-words leading-relaxed">
                                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                                       </div>
                                   </div>
@@ -232,22 +267,22 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
                           {loadingAi && (
                               <div className="flex justify-start">
-                                  <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 flex items-center space-x-2 text-gray-400">
-                                      <Loader2 className="animate-spin" size={14}/>
-                                      <span>Thinking...</span>
+                                  <div className="bg-gray-800 border border-gray-700 rounded-2xl px-5 py-4 flex items-center space-x-3 text-gray-400 animate-pulse">
+                                      <Loader2 className="animate-spin text-purple-500" size={18}/>
+                                      <span className="text-sm font-medium">Thinking...</span>
                                   </div>
                               </div>
                           )}
                           <div ref={chatEndRef} />
                       </div>
 
-                      {/* Chat Input */}
-                      <div className="p-3 border-t border-gray-800 bg-gray-900">
-                          <div className="relative flex items-center">
+                      {/* Chat Input Area */}
+                      <div className="p-4 border-t border-gray-800 bg-[#1f2937]">
+                          <div className="relative flex items-center bg-gray-900 rounded-xl border border-gray-700 focus-within:border-purple-500 focus-within:ring-1 focus-within:ring-purple-500 transition-all shadow-inner">
                               <input
                                   type="text"
-                                  className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-3 pr-10 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 placeholder-gray-500"
-                                  placeholder="Ask about this code..."
+                                  className="w-full bg-transparent pl-4 pr-12 py-3.5 text-sm text-white focus:outline-none placeholder-gray-500"
+                                  placeholder="Ask follow-up questions..."
                                   value={chatInput}
                                   onChange={e => setChatInput(e.target.value)}
                                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAiAssist('chat', chatInput)}
@@ -256,9 +291,9 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
                               <button
                                   onClick={() => handleAiAssist('chat', chatInput)}
                                   disabled={!chatInput.trim() || loadingAi}
-                                  className="absolute right-2 text-gray-400 hover:text-purple-400 disabled:opacity-50"
+                                  className="absolute right-2 p-2 text-gray-400 hover:text-purple-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
                               >
-                                  <Send size={16}/>
+                                  <Send size={18}/>
                               </button>
                           </div>
                       </div>
@@ -270,12 +305,13 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       {/* Upload Modal */}
       {showUpload && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-md p-6 relative">
-                  <button onClick={() => setShowUpload(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><ArrowLeft size={20}/></button>
-                  <h3 className="text-xl font-bold text-white mb-4">Populate Lab Workspace</h3>
+              <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-md p-6 relative shadow-2xl animate-in zoom-in-95 duration-200">
+                  <button onClick={() => setShowUpload(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"><ArrowLeft size={20}/></button>
+                  <h3 className="text-xl font-bold text-white mb-2">Upload Lab Manual</h3>
+                  <p className="text-gray-400 text-sm mb-6">Upload a PDF manual to automatically extract experiments and source code.</p>
 
                   <form onSubmit={handleUploadManual}>
-                      <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-purple-500/50 transition-colors cursor-pointer bg-gray-800/50 mb-6">
+                      <div className="border-2 border-dashed border-gray-700 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-purple-500/50 transition-colors cursor-pointer bg-gray-800/30 mb-6 group">
                           <input
                               type="file"
                               id="manual-upload"
@@ -284,18 +320,20 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
                               onChange={e => setManualFile(e.target.files?.[0] || null)}
                           />
                           <label htmlFor="manual-upload" className="cursor-pointer w-full flex flex-col items-center">
-                              <FileText className="text-purple-500 mb-3" size={32}/>
-                              <span className="text-gray-300 font-medium">Upload Lab Manual (PDF)</span>
-                              {manualFile && <span className="mt-2 text-sm text-purple-400">{manualFile.name}</span>}
+                              <div className="bg-gray-800 p-3 rounded-full mb-3 group-hover:scale-110 transition-transform">
+                                  <FileText className="text-purple-500" size={32}/>
+                              </div>
+                              <span className="text-gray-300 font-medium group-hover:text-purple-400 transition-colors">Click to Select PDF</span>
+                              {manualFile && <span className="mt-2 text-sm text-green-400 font-medium bg-green-900/20 px-3 py-1 rounded-full">{manualFile.name}</span>}
                           </label>
                       </div>
 
                       <button
                           type="submit"
                           disabled={!manualFile || uploading}
-                          className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-lg font-bold transition-colors disabled:opacity-50 flex items-center justify-center"
+                          className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-purple-900/30 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed hover:translate-y-[-2px]"
                       >
-                          {uploading ? <><Loader2 className="animate-spin mr-2"/> Parsing...</> : 'Generate Experiments'}
+                          {uploading ? <><Loader2 className="animate-spin mr-2"/> Processing Manual...</> : 'Parse & Generate'}
                       </button>
                   </form>
               </div>
