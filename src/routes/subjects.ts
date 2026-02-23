@@ -6,7 +6,8 @@ import axios from 'axios';
 import Tesseract from 'tesseract.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+// PDFParse v2+ Import
+import { PDFParse } from 'pdf-parse';
 import { Subject, ISubject, IUnit } from '../models/Subject.ts';
 import { ChatOllama } from '@langchain/ollama';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
@@ -30,9 +31,12 @@ async function parseFile(file: Express.Multer.File): Promise<string> {
   let text = '';
   try {
     if (file.mimetype === 'application/pdf') {
+      // PDFParse v2 Usage
       const dataBuffer = fs.readFileSync(filePath);
-      const data = await pdfParse(dataBuffer);
-      text = data.text;
+      const parser = new PDFParse({ data: dataBuffer });
+      const result = await parser.getText();
+      text = result.text;
+      await parser.destroy();
     } else if (file.mimetype.startsWith('image/')) {
       const { data: { text: ocrText } } = await Tesseract.recognize(filePath, 'eng');
       text = ocrText;
