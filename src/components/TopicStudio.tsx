@@ -7,7 +7,17 @@ import {
   Send, CheckCircle, HelpCircle, Activity,
   Maximize2, Minimize2, Loader2, Save, Calculator, PenTool, Eraser, Trash2, Download, Bookmark, Globe, Settings as SettingsIcon, Filter
 } from 'lucide-react';
-import { useGlobalTask, Question } from '../context/GlobalTaskManager';
+import { useGlobalTask } from '../context/GlobalTaskManager';
+
+export interface Question {
+    type: string;
+    question: string;
+    options?: string[];
+    answer: string;
+    explanation: string;
+    difficulty: string;
+    verification_script?: string;
+}
 
 interface ChatMessage {
   sender: 'user' | 'ai';

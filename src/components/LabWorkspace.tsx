@@ -36,6 +36,10 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   const [code, setCode] = useState('// Select an experiment or paste code here...');
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
 
+  // Resizable Panel State
+  const [aiPanelWidth, setAiPanelWidth] = useState(450); // px
+  const [isResizing, setIsResizing] = useState(false);
+
   // Chat State - Now keyed by experiment name
   const [allChats, setAllChats] = useState<Record<string, ChatMessage[]>>({});
   const [currentChat, setCurrentChat] = useState<ChatMessage[]>([]);
@@ -73,6 +77,37 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, loadingAi, aiPanelOpen]);
 
+  // Resizing Logic
+  useEffect(() => {
+      const handleMouseMove = (e: MouseEvent) => {
+          if (isResizing) {
+              const newWidth = document.body.clientWidth - e.clientX;
+              // Constraints: Min 300px, Max 60% of screen
+              if (newWidth > 300 && newWidth < document.body.clientWidth * 0.6) {
+                  setAiPanelWidth(newWidth);
+              }
+          }
+      };
+
+      const handleMouseUp = () => {
+          setIsResizing(false);
+          document.body.style.cursor = 'default';
+          document.body.style.userSelect = 'auto'; // Re-enable text selection
+      };
+
+      if (isResizing) {
+          window.addEventListener('mousemove', handleMouseMove);
+          window.addEventListener('mouseup', handleMouseUp);
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none'; // Disable text selection while dragging
+      }
+
+      return () => {
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+      };
+  }, [isResizing]);
+
   const toggleUnit = (title: string) => {
       setExpandedUnits(prev => ({ ...prev, [title]: !prev[title] }));
   };
@@ -91,7 +126,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
   // Watch for completed parse tasks
   useEffect(() => {
-      Object.values(tasks).forEach(task => {
+      Object.values(tasks).forEach((task: any) => {
           if (task.type === 'parse-code' && task.status === 'completed' && task.payload.topicName === activeExperiment) {
               setCode(task.result);
           }
@@ -155,7 +190,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
   // Watch for AI Stream Tasks
   useEffect(() => {
-      Object.values(tasks).forEach(task => {
+      Object.values(tasks).forEach((task: any) => {
           if (task.type === 'ai-chat' && task.status === 'running' && task.streamContent) {
               // Find the last AI message in current chat or append a new one
               setAllChats(prev => {
@@ -270,7 +305,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
           <div className="flex-1 flex overflow-hidden">
               {/* Code Editor */}
-              <div className="flex-1 bg-[#0d1117] relative flex flex-col">
+              <div className="flex-1 bg-[#0d1117] relative flex flex-col min-w-0">
                   <textarea
                       className="w-full h-full bg-transparent text-gray-300 font-mono text-sm p-6 resize-none focus:outline-none leading-relaxed scrollbar-hide"
                       value={code}
@@ -279,9 +314,22 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
                   />
               </div>
 
-              {/* AI Panel - Expanded Width & Better UI */}
+              {/* Resizer Handle */}
               {aiPanelOpen && (
-                  <div className="w-[40%] min-w-[350px] bg-[#111827] border-l border-gray-800 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl z-10">
+                  <div
+                      onMouseDown={() => setIsResizing(true)}
+                      className="w-1 cursor-col-resize bg-gray-800 hover:bg-purple-500 transition-colors z-20 flex flex-col justify-center items-center group"
+                  >
+                      <div className="h-8 w-1 bg-gray-600 rounded group-hover:bg-white transition-colors"></div>
+                  </div>
+              )}
+
+              {/* AI Panel - Resizable */}
+              {aiPanelOpen && (
+                  <div
+                      style={{ width: `${aiPanelWidth}px` }}
+                      className="bg-[#111827] border-l border-gray-800 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl z-10 shrink-0"
+                  >
                       <div className="p-4 border-b border-gray-800 bg-[#1f2937] flex items-center justify-between">
                           <div className="flex items-center font-bold text-gray-100 text-sm tracking-wide">
                               <Code size={16} className="mr-2 text-purple-400"/> AI Copilot

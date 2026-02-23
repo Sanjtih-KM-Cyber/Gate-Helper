@@ -10,7 +10,7 @@ import { GlobalTaskProvider, useGlobalTask, GlobalTaskManagerProvider, useGlobal
 function Navbar() {
   const { isGenerating } = useGlobalTask(); // Legacy
   const { tasks } = useGlobalTaskManager(); // New Manager
-  const activeTasksCount = Object.values(tasks).filter(t => t.status === 'running' || t.status === 'pending').length;
+  const activeTasksCount = Object.values(tasks).filter((t: any) => t.status === 'running' || t.status === 'pending').length;
 
   return (
      <nav className="bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-8 py-4 flex justify-between items-center sticky top-0 z-50">
