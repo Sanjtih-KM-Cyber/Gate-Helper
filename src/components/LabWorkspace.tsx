@@ -6,6 +6,7 @@ import {
   Play, Maximize2, Minimize2, Loader2, Save, FileText, FlaskConical, Send
 } from 'lucide-react';
 import { useParams, Link } from 'react-router-dom';
+import { useGlobalTaskManager } from '../context/GlobalTaskManager';
 
 interface Topic {
   name: string;
@@ -43,6 +44,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
+  const { startTask, tasks } = useGlobalTaskManager();
 
   // Upload State
   const [showUpload, setShowUpload] = useState(false);
@@ -77,8 +79,24 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
   const handleTopicClick = (topic: Topic) => {
       setActiveExperiment(topic.name);
-      setCode(topic.code || `// ${topic.name}\n\n#include <stdio.h>\n\nint main() {\n    printf("Hello Lab!");\n    return 0;\n}`);
+
+      if (topic.code && topic.code.length > 50) { // Basic check if code is real
+          setCode(topic.code);
+      } else {
+          // Trigger Lazy Load Task
+          setCode('// Loading code from manual...');
+          startTask('parse-code', { subjectId: id, topicName: topic.name });
+      }
   };
+
+  // Watch for completed parse tasks
+  useEffect(() => {
+      Object.values(tasks).forEach(task => {
+          if (task.type === 'parse-code' && task.status === 'completed' && task.payload.topicName === activeExperiment) {
+              setCode(task.result);
+          }
+      });
+  }, [tasks, activeExperiment]);
 
   const handleUploadManual = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -116,29 +134,53 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       setLoadingAi(true);
       if (!aiPanelOpen) setAiPanelOpen(true);
 
-      // Add user message to history if chat
+      // Add user message to history
       if (action === 'chat' && message) {
           updateChatHistory({ role: 'user', content: message });
           setChatInput('');
       } else if (action !== 'chat') {
-          // Add system-like user action to history
           updateChatHistory({ role: 'user', content: `Request: ${action} this code.` });
       }
 
-      try {
-          const res = await axios.post('http://localhost:5000/api/agent/lab-assist', {
-              code,
-              action,
-              language: 'c', // Defaulting to C for labs
-              message: message
-          });
-          updateChatHistory({ role: 'ai', content: res.data.result });
-      } catch (err) {
-          updateChatHistory({ role: 'ai', content: "AI Assistant failed to respond. Ensure backend is running." });
-      } finally {
-          setLoadingAi(false);
-      }
+      // Start Task via Global Manager
+      const taskId = startTask('ai-chat', {
+          code,
+          action,
+          language: 'c',
+          message: message
+      });
+
+      // We don't await here anymore, the useEffect below handles the stream
   };
+
+  // Watch for AI Stream Tasks
+  useEffect(() => {
+      Object.values(tasks).forEach(task => {
+          if (task.type === 'ai-chat' && task.status === 'running' && task.streamContent) {
+              // Find the last AI message in current chat or append a new one
+              setAllChats(prev => {
+                  const currentExpChats = prev[activeExperiment!] || [];
+                  const lastMsg = currentExpChats[currentExpChats.length - 1];
+
+                  if (lastMsg && lastMsg.role === 'ai' && lastMsg.content !== task.streamContent) {
+                      // Update existing streaming message
+                      const newChats = [...currentExpChats];
+                      newChats[newChats.length - 1] = { role: 'ai', content: task.streamContent };
+                      return { ...prev, [activeExperiment!]: newChats };
+                  } else if (!lastMsg || lastMsg.role === 'user') {
+                      // Append new streaming message
+                      return { ...prev, [activeExperiment!]: [...currentExpChats, { role: 'ai', content: task.streamContent }] };
+                  }
+                  return prev;
+              });
+          }
+
+          if (task.type === 'ai-chat' && task.status === 'completed' && task.result) {
+               setLoadingAi(false);
+               // Final update ensured by stream content logic usually, but good to ensure completion state
+          }
+      });
+  }, [tasks, activeExperiment]);
 
   const saveCode = async () => {
       if (!activeExperiment) return;

@@ -19,6 +19,7 @@ export interface ISubject extends Document {
   semester?: number;
   type: 'Theory' | 'Lab'; // New Field
   syllabus: IUnit[];
+  rawText?: string; // Stored for Lazy Loading
   status: 'Not Started' | 'In Progress' | 'Completed';
   createdAt: Date;
 }
@@ -42,6 +43,7 @@ const SubjectSchema = new Schema<ISubject>({
   semester: { type: Number, default: 1 },
   type: { type: String, enum: ['Theory', 'Lab'], default: 'Theory' },
   syllabus: [UnitSchema],
+  rawText: { type: String, select: false }, // Don't return by default
   status: { type: String, enum: ['Not Started', 'In Progress', 'Completed'], default: 'Not Started' },
   createdAt: { type: Date, default: Date.now }
 });

@@ -180,38 +180,31 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
 
     console.log(`Parsing Lab Manual for: ${subject.name}`);
     const text = await parseFile(file);
-    // console.log("Extracted PDF Text Length:", text.length);
 
-    const systemPrompt = `You are an expert lab assistant and programmer. Your goal is to extract a structured list of experiments AND their corresponding source code from the provided lab manual.
+    // Store raw text for lazy extraction later
+    subject.rawText = text;
 
-    CRITICAL INSTRUCTIONS FOR CODE EXTRACTION:
-    1. You MUST extract the full source code for each experiment.
-    2. The 'code' field MUST be a valid JSON string.
-    3. You MUST escape all newlines in the code as '\\n'.
-    4. You MUST escape all double quotes in the code as '\"'.
-    5. If there are multiple files or blocks for one experiment, combine them into one string separated by '\\n//--- Next File ---\\n'.
-    6. Do NOT summarize the code. Copy it exactly as it appears in the text.
-
-    Output ONLY valid JSON. No conversational text.`;
+    const systemPrompt = `You are an expert lab assistant. Extract the hierarchy of experiments from this lab manual.
+    Output ONLY valid JSON.`;
 
     const userPrompt = `
       Manual Text (Snippet):
-      ${text.substring(0, 25000)}
+      ${text.substring(0, 15000)}
 
       Task:
-      Extract experiments and code into the structure below.
+      Identify all Experiment Titles and Group them by Unit/Category if applicable.
+      Do NOT extract code at this stage.
 
       Structure:
       {
         "syllabus": [
           {
-            "title": "Experiment Unit Name",
+            "title": "Unit / Category",
             "topics": [
                {
-                 "name": "Experiment Name",
+                 "name": "Experiment Title",
                  "status": "Not Started",
-                 "confidence": "Red",
-                 "code": "#include <stdio.h>\\n\\nint main() {\\n    printf(\\\"Hello\\\");\\n    return 0;\\n}"
+                 "confidence": "Red"
                }
             ]
           }
@@ -219,24 +212,18 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
       }
     `;
 
-    console.log("Sending Lab Manual to LLM...");
+    console.log("Sending Lab Manual Structure Request...");
     const response = await llm.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(userPrompt)
     ]);
 
-    // console.log("LLM Response Length:", response.content.toString().length);
-
     let parsedData;
     try {
       parsedData = extractJSON(response.content.toString());
-      // console.log("Parsed Syllabus Units:", parsedData.syllabus?.length);
-      // if (parsedData.syllabus?.[0]?.topics?.[0]) {
-      //    console.log("Sample Code Snippet:", parsedData.syllabus[0].topics[0].code?.substring(0, 50));
-      // }
     } catch (e) {
-      console.error("JSON Parse Error on Lab Manual:", e);
-      return res.status(500).json({ error: 'Failed to parse lab manual structure' });
+      console.error("JSON Parse Error:", e);
+      return res.status(500).json({ error: 'Failed to parse structure' });
     }
 
     if (parsedData.syllabus) {
@@ -251,6 +238,76 @@ router.post('/:id/parse-lab-manual', upload.single('file'), async (req, res) => 
     console.error('Lab Parse Error:', err);
     res.status(500).json({ error: (err as any).message });
   }
+});
+
+// POST /api/subjects/:id/parse-experiment-detail - Lazy Load Code
+router.post('/:id/parse-experiment-detail', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { topicName } = req.body;
+
+        // Fetch Subject with rawText
+        const subject = await Subject.findById(id).select('+rawText');
+        if (!subject || !subject.rawText) return res.status(404).json({ error: 'Subject or manual text not found' });
+
+        console.log(`Lazy Parsing Code for: ${topicName}`);
+
+        // Extract a chunk of text relevant to the topic (Simple search window)
+        // Find topic index
+        const topicIndex = subject.rawText.indexOf(topicName);
+        let contextText = "";
+        if (topicIndex !== -1) {
+            // Take 3000 chars after the topic name
+            contextText = subject.rawText.substring(topicIndex, topicIndex + 4000);
+        } else {
+            // Fallback to beginning
+            contextText = subject.rawText.substring(0, 10000);
+        }
+
+        const systemPrompt = `You are a code extractor. Extract the source code for the experiment "${topicName}".
+        Return ONLY valid JSON.
+        Escape newlines as \\n. Escape double quotes as \\".
+        `;
+
+        const userPrompt = `
+        Context:
+        ${contextText}
+
+        Task: Extract the full code for "${topicName}".
+        Format: { "code": "full source code string" }
+        If not found, return { "code": "// Code not found in extracted text." }
+        `;
+
+        const response = await llm.invoke([
+            new SystemMessage(systemPrompt),
+            new HumanMessage(userPrompt)
+        ]);
+
+        const data = extractJSON(response.content.toString());
+        const code = data.code || "// Code not extracted.";
+
+        // Update DB
+        let updated = false;
+        subject.syllabus.forEach(unit => {
+            unit.topics.forEach(t => {
+                if (t.name === topicName) {
+                    t.code = code;
+                    updated = true;
+                }
+            });
+        });
+
+        if (updated) {
+            subject.markModified('syllabus');
+            await subject.save();
+        }
+
+        res.json({ code });
+
+    } catch (err) {
+        console.error("Lazy Parse Error:", err);
+        res.status(500).json({ error: 'Extraction failed' });
+    }
 });
 
 // POST /gate-prep - Automated Web Scraping (Tavily API)

@@ -120,6 +120,25 @@ router.post('/lab-assist', async (req, res) => {
     }
 
     try {
+        // Check if streaming is requested
+        if (req.body.stream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+
+            const stream = await codeLlm.stream([
+                new SystemMessage(systemPrompt),
+                new HumanMessage(userPrompt)
+            ]);
+
+            for await (const chunk of stream) {
+                res.write(`data: ${JSON.stringify({ chunk: chunk.content })}\n\n`);
+            }
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+        }
+
         const response = await codeLlm.invoke([
             new SystemMessage(systemPrompt),
             new HumanMessage(userPrompt)
