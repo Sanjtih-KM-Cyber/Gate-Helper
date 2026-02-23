@@ -16,6 +16,7 @@ export interface ISubject extends Document {
   name: string;
   description?: string;
   category: 'College Prep' | 'GATE Prep';
+  semester?: number;
   type: 'Theory' | 'Lab'; // New Field
   syllabus: IUnit[];
   status: 'Not Started' | 'In Progress' | 'Completed';
@@ -38,6 +39,7 @@ const SubjectSchema = new Schema<ISubject>({
   name: { type: String, required: true },
   description: { type: String },
   category: { type: String, required: true, enum: ['College Prep', 'GATE Prep'], default: 'College Prep' },
+  semester: { type: Number, default: 1 },
   type: { type: String, enum: ['Theory', 'Lab'], default: 'Theory' },
   syllabus: [UnitSchema],
   status: { type: String, enum: ['Not Started', 'In Progress', 'Completed'], default: 'Not Started' },

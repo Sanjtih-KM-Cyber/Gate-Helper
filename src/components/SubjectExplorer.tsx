@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
-import { Book, Plus, ArrowRight, Upload, Loader2, Database, GraduationCap, X, FlaskConical } from 'lucide-react';
+import { Book, Plus, ArrowRight, Upload, Loader2, Database, GraduationCap, X, FlaskConical, Trash2 } from 'lucide-react';
 
 interface Subject {
   _id: string;
   name: string;
   description: string;
   category: string;
+  semester?: number;
   type: 'Theory' | 'Lab';
   syllabus: any[];
 }
@@ -36,10 +37,14 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // College Prep: Active Semester Tab
+  const [activeSemester, setActiveSemester] = useState(1);
+
   // Modal State for College Prep / Custom GATE
   const [showModal, setShowModal] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState('');
   const [subjectType, setSubjectType] = useState<'Theory' | 'Lab'>('Theory');
+  const [modalSemester, setModalSemester] = useState(1); // For College Prep creation
   const [files, setFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -60,13 +65,27 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     try {
       const res = await axios.get('http://localhost:5000/api/subjects');
       // Filter by category
-      const filtered = res.data.filter((s: Subject) => s.category === category);
+      let filtered = res.data.filter((s: Subject) => s.category === category);
       setSubjects(filtered);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const deleteSubject = async (e: React.MouseEvent, id: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!confirm("Are you sure you want to delete this subject?")) return;
+
+      try {
+          await axios.delete(`http://localhost:5000/api/subjects/${id}`);
+          setSubjects(prev => prev.filter(s => s._id !== id));
+      } catch (err) {
+          console.error("Failed to delete subject", err);
+          alert("Failed to delete subject");
+      }
   };
 
   const handleGateSubjectClick = async (subjectName: string) => {
@@ -103,6 +122,9 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
     formData.append('name', newSubjectName);
     formData.append('type', subjectType);
     formData.append('category', category); // Pass current category
+    if (category === 'College Prep') {
+        formData.append('semester', modalSemester.toString());
+    }
     formData.append('description', 'User uploaded subject');
     if (files) {
         for (let i = 0; i < files.length; i++) {
@@ -119,6 +141,7 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
       setShowModal(false);
       setNewSubjectName('');
       setSubjectType('Theory');
+      setModalSemester(activeSemester); // Reset to active tab
       setFiles(null);
     } catch (err) {
       console.error(err);
@@ -186,6 +209,25 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
         </div>
       </div>
 
+      {/* College Prep: Semester Tabs */}
+      {category === 'College Prep' && (
+          <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide mb-6 border-b border-gray-800">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                  <button
+                      key={sem}
+                      onClick={() => setActiveSemester(sem)}
+                      className={`px-4 py-2 rounded-t-lg font-medium transition-colors whitespace-nowrap ${
+                          activeSemester === sem
+                          ? 'bg-blue-600/20 text-blue-400 border-b-2 border-blue-500'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                      }`}
+                  >
+                      Semester {sem}
+                  </button>
+              ))}
+          </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="animate-spin text-gray-500" size={40} />
@@ -193,10 +235,20 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Render User Subjects */}
-          {subjects.map((sub) => (
-            <Link to={`/subject/${sub._id}`} key={sub._id} className={`group bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all shadow-lg flex flex-col justify-between min-h-[180px] ${category === 'College Prep' ? 'hover:border-blue-500 hover:shadow-blue-900/20' : 'hover:border-green-500 hover:shadow-green-900/20'}`}>
+          {subjects
+            .filter(sub => category === 'GATE Prep' || (sub.semester || 1) === activeSemester)
+            .map((sub) => (
+            <Link to={`/subject/${sub._id}`} key={sub._id} className={`group bg-gray-900 border border-gray-800 rounded-xl p-6 transition-all shadow-lg flex flex-col justify-between min-h-[180px] relative ${category === 'College Prep' ? 'hover:border-blue-500 hover:shadow-blue-900/20' : 'hover:border-green-500 hover:shadow-green-900/20'}`}>
+                <button
+                    onClick={(e) => deleteSubject(e, sub._id)}
+                    className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-gray-800 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    title="Delete Subject"
+                >
+                    <Trash2 size={16} />
+                </button>
+
                 <div>
-                <div className="flex justify-between items-start mb-4">
+                <div className="flex justify-between items-start mb-4 pr-8">
                     <h2 className={`text-xl font-bold text-white transition-colors line-clamp-2 ${category === 'College Prep' ? 'group-hover:text-blue-400' : 'group-hover:text-green-400'}`}>{sub.name}</h2>
                     {sub.type === 'Lab' ? (
                         <FlaskConical className="text-purple-500 group-hover:text-purple-400 transition-colors flex-shrink-0" size={24}/>
@@ -210,6 +262,9 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
                     <span className={`text-xs px-2 py-0.5 rounded ${sub.type === 'Lab' ? 'bg-purple-900/30 text-purple-400' : 'bg-gray-800 text-gray-400'}`}>
                         {sub.type}
                     </span>
+                    {category === 'College Prep' && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">Sem {sub.semester || 1}</span>
+                    )}
                 </div>
                 <p className="text-gray-500 text-sm">
                     {sub.syllabus?.length || 0} Units • {sub.syllabus?.reduce((acc: number, u: any) => acc + (u.topics?.length || 0), 0) || 0} Topics
@@ -285,6 +340,22 @@ export default function SubjectExplorer({ category }: SubjectExplorerProps) {
                       required
                     />
                  </div>
+
+                 {/* Semester Selection (College Prep Only) */}
+                 {category === 'College Prep' && (
+                     <div>
+                        <label className="block text-gray-400 text-sm font-medium mb-2">Semester</label>
+                        <select
+                            value={modalSemester}
+                            onChange={e => setModalSemester(parseInt(e.target.value))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500"
+                        >
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
+                                <option key={s} value={s}>Semester {s}</option>
+                            ))}
+                        </select>
+                     </div>
+                 )}
 
                  {/* Type Selection */}
                  <div>

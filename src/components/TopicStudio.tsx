@@ -170,6 +170,7 @@ export default function TopicStudio() {
   const [confidence, setConfidence] = useState<'Red' | 'Yellow' | 'Green'>('Red');
   const [status, setStatus] = useState<'Not Started' | 'In Progress' | 'Completed'>('In Progress');
   const [prepType, setPrepType] = useState<'College' | 'GATE'>('GATE');
+  const [category, setCategory] = useState<string>('GATE Prep');
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -234,6 +235,7 @@ export default function TopicStudio() {
     try {
       const res = await axios.get(`http://localhost:5000/api/subjects/${subjectId}`);
       if (res.data) {
+        setCategory(res.data.category || 'GATE Prep');
         if (res.data.category === 'College Prep') setPrepType('College');
         else setPrepType('GATE');
 
@@ -308,7 +310,8 @@ export default function TopicStudio() {
       const res = await axios.post('http://localhost:5000/api/agent/chat', {
         message: userMsg,
         topic: decodedTopic,
-        mode: socraticMode ? 'socratic' : 'standard'
+        mode: socraticMode ? 'socratic' : 'standard',
+        category: category
       });
       setMessages(prev => [...prev, { sender: 'ai', text: res.data.reply }]);
     } catch (err) {
