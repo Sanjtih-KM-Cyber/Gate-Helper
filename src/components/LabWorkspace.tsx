@@ -39,6 +39,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   // Resizable Panel State
   const [aiPanelWidth, setAiPanelWidth] = useState(450); // px
   const [isResizing, setIsResizing] = useState(false);
+  const resizerRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Chat State - Now keyed by experiment name
   const [allChats, setAllChats] = useState<Record<string, ChatMessage[]>>({});
@@ -80,8 +81,10 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   // Resizing Logic
   useEffect(() => {
       const handleMouseMove = (e: MouseEvent) => {
-          if (isResizing) {
-              const newWidth = document.body.clientWidth - e.clientX;
+          if (isResizing && resizerRef.current) {
+              const delta = resizerRef.current.startX - e.clientX; // Dragging Left increases width
+              const newWidth = resizerRef.current.startWidth + delta;
+
               // Constraints: Min 300px, Max 60% of screen
               if (newWidth > 300 && newWidth < document.body.clientWidth * 0.6) {
                   setAiPanelWidth(newWidth);
@@ -91,6 +94,7 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
       const handleMouseUp = () => {
           setIsResizing(false);
+          resizerRef.current = null;
           document.body.style.cursor = 'default';
           document.body.style.userSelect = 'auto'; // Re-enable text selection
       };
@@ -322,7 +326,10 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
               {/* Resizer Handle */}
               {aiPanelOpen && (
                   <div
-                      onMouseDown={() => setIsResizing(true)}
+                      onMouseDown={(e) => {
+                          setIsResizing(true);
+                          resizerRef.current = { startX: e.clientX, startWidth: aiPanelWidth };
+                      }}
                       className="w-1 cursor-col-resize bg-gray-800 hover:bg-purple-500 transition-colors z-20 flex flex-col justify-center items-center group"
                   >
                       <div className="h-8 w-1 bg-gray-600 rounded group-hover:bg-white transition-colors"></div>
