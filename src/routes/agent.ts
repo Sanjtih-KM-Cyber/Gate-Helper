@@ -3,6 +3,7 @@ import { ChatOllama } from '@langchain/ollama';
 import { DuckDuckGoSearch } from '@langchain/community/tools/duckduckgo_search';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Settings } from '../models/Settings.ts';
+import { ChatSession } from '../models/ChatSession.ts';
 import { getRelevantContext } from '../utils/vectorStore.ts';
 import { execSync } from 'child_process';
 import axios from 'axios';
@@ -111,28 +112,33 @@ function verifyAnswerWithPython(script: string): string | null {
 // Lab Assistant Endpoint
 router.post('/lab-assist', async (req, res) => {
   try {
-    const { code, action, language = 'c', message } = req.body;
+    const { code, action, language = 'c', message, sessionId } = req.body;
     if (!code || !action) return res.status(400).json({ error: 'Code and action are required' });
 
     let baseInstruction = "";
     let userPrompt = "";
+    let userDisplayMessage = "";
 
     switch (action) {
       case 'explain':
         baseInstruction = "Explain the provided code step-by-step for a college student. Focus on logic and flow.";
         userPrompt = `Explain this ${language} code:\n\n${code}`;
+        userDisplayMessage = "Explain this code";
         break;
       case 'shorten':
         baseInstruction = "Refactor the code to be shorter and more efficient without changing functionality. Provide the refactored code and a brief explanation.";
         userPrompt = `Shorten this ${language} code:\n\n${code}`;
+        userDisplayMessage = "Refactor/Shorten code";
         break;
       case 'comment':
         baseInstruction = "Add detailed educational comments to the code. Explain complex lines.";
         userPrompt = `Add comments to this ${language} code:\n\n${code}`;
+        userDisplayMessage = "Add comments";
         break;
       case 'chat':
          baseInstruction = "Answer the student's question about the code.";
          userPrompt = `Code:\n${code}\n\nQuestion: ${message || "Help me with this."}`;
+         userDisplayMessage = message || "Code Query";
          break;
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -153,13 +159,29 @@ router.post('/lab-assist', async (req, res) => {
                 new HumanMessage(userPrompt)
             ]);
 
+            let fullResponse = '';
+
             for await (const chunk of stream) {
                 if (chunk.content) {
-                    res.write(`data: ${JSON.stringify({ chunk: chunk.content })}\n\n`);
+                    const text = chunk.content.toString();
+                    fullResponse += text;
+                    res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`);
                 }
             }
             res.write('data: [DONE]\n\n');
             res.end();
+
+            // Persist Chat if sessionId provided
+            if (sessionId) {
+                 await ChatSession.findByIdAndUpdate(sessionId, {
+                     $push: { messages: [
+                         { role: 'user', content: userDisplayMessage, timestamp: new Date() },
+                         { role: 'ai', content: fullResponse, timestamp: new Date() }
+                     ]},
+                     updatedAt: new Date()
+                 });
+            }
+
             return;
         }
 
@@ -167,7 +189,21 @@ router.post('/lab-assist', async (req, res) => {
             new SystemMessage(systemPrompt),
             new HumanMessage(userPrompt)
         ]);
-        return res.json({ result: response.content });
+
+        const aiContent = response.content.toString();
+
+        // Persist Chat if sessionId provided
+        if (sessionId) {
+             await ChatSession.findByIdAndUpdate(sessionId, {
+                 $push: { messages: [
+                     { role: 'user', content: userDisplayMessage, timestamp: new Date() },
+                     { role: 'ai', content: aiContent, timestamp: new Date() }
+                 ]},
+                 updatedAt: new Date()
+             });
+        }
+
+        return res.json({ result: aiContent });
     } catch (modelErr) {
         console.warn("Failed to use qwen2.5-coder:7b, falling back to default LLM", modelErr);
         const response = await llm.invoke([

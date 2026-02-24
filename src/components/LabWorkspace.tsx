@@ -48,6 +48,9 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   const [loadingAi, setLoadingAi] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Map experiments to session IDs
+  const [sessionIds, setSessionIds] = useState<Record<string, string>>({});
+
   const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
   const { startTask, tasks } = useGlobalTaskManager();
 
@@ -66,12 +69,53 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       }
   }, [subject]);
 
-  // Sync Current Chat with Active Experiment
+  // Sync Current Chat with Active Experiment & Fetch History
+  useEffect(() => {
+      if (!activeExperiment) return;
+
+      // 1. Update View with local state first (Optimistic)
+      setCurrentChat(allChats[activeExperiment] || []);
+
+      // 2. Fetch history from backend to ensure persistence across reloads/devices
+      const fetchHistory = async () => {
+          try {
+              // Check if we already have a session ID locally, if so, we might still want to refresh to get latest
+              const res = await axios.get(`http://localhost:5000/api/chat/sessions`, {
+                  params: {
+                      type: 'lab',
+                      subjectId: id,
+                      topicName: activeExperiment
+                  }
+              });
+
+              if (res.data && res.data.length > 0) {
+                  const session = res.data[0];
+                  setSessionIds(prev => ({ ...prev, [activeExperiment]: session._id }));
+
+                  // Update local state with backend messages
+                  setAllChats(prev => ({
+                      ...prev,
+                      [activeExperiment]: session.messages.map((m: any) => ({
+                          role: m.role,
+                          content: m.content
+                      }))
+                  }));
+              }
+          } catch (err) {
+              console.error("Failed to fetch chat history", err);
+          }
+      };
+
+      fetchHistory();
+
+  }, [activeExperiment, id]); // Depend on activeExperiment to re-fetch on switch
+
+  // Sync allChats to currentChat (for streaming updates)
   useEffect(() => {
       if (activeExperiment) {
           setCurrentChat(allChats[activeExperiment] || []);
       }
-  }, [activeExperiment, allChats]);
+  }, [allChats]); // Remove activeExperiment from here to avoid double-triggering logic loops
 
   // Auto-scroll chat
   useEffect(() => {
@@ -170,15 +214,36 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   };
 
   const handleAiAssist = async (action: 'explain' | 'shorten' | 'comment' | 'chat', message?: string) => {
+      if (!activeExperiment) return;
       setLoadingAi(true);
       if (!aiPanelOpen) setAiPanelOpen(true);
 
-      // Add user message to history
+      // Add user message to history (Optimistic UI)
       if (action === 'chat' && message) {
           updateChatHistory({ role: 'user', content: message });
           setChatInput('');
       } else if (action !== 'chat') {
           updateChatHistory({ role: 'user', content: `Request: ${action} this code.` });
+      }
+
+      // Ensure Session Exists
+      let currentSessionId = sessionIds[activeExperiment];
+      if (!currentSessionId) {
+          try {
+              const res = await axios.post('http://localhost:5000/api/chat/sessions', {
+                  title: `Lab: ${activeExperiment}`,
+                  metadata: {
+                      type: 'lab',
+                      subjectId: id,
+                      topicName: activeExperiment
+                  }
+              });
+              currentSessionId = res.data._id;
+              setSessionIds(prev => ({ ...prev, [activeExperiment]: currentSessionId }));
+          } catch (err) {
+              console.error("Failed to create chat session", err);
+              // Proceed without session ID (won't persist but will work for this session)
+          }
       }
 
       // Start Task via Global Manager
@@ -187,10 +252,9 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
           action,
           language: 'c',
           message: message,
-          experimentId: activeExperiment // Identify which experiment this task belongs to
+          experimentId: activeExperiment, // Identify which experiment this task belongs to
+          sessionId: currentSessionId // Pass session ID for persistence
       });
-
-      // We don't await here anymore, the useEffect below handles the stream
   };
 
   // Watch for AI Tasks (Streaming or Completed)
