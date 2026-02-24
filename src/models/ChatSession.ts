@@ -10,6 +10,11 @@ export interface IMessage {
 export interface IChatSession extends Document {
   title: string;
   messages: IMessage[];
+  metadata?: {
+    type?: 'general' | 'lab' | 'topic-studio';
+    subjectId?: string;
+    topicName?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,8 +29,16 @@ const MessageSchema = new Schema<IMessage>({
 const ChatSessionSchema = new Schema<IChatSession>({
   title: { type: String, default: 'New Chat' },
   messages: [MessageSchema],
+  metadata: {
+    type: { type: String, enum: ['general', 'lab', 'topic-studio'], default: 'general' },
+    subjectId: { type: String },
+    topicName: { type: String }
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
+
+// Index for faster queries by metadata
+ChatSessionSchema.index({ 'metadata.type': 1, 'metadata.subjectId': 1, 'metadata.topicName': 1 });
 
 export const ChatSession = mongoose.model<IChatSession>('ChatSession', ChatSessionSchema);

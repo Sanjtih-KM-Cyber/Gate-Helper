@@ -12,10 +12,17 @@ const llm = new ChatOllama({
   temperature: 0.7,
 });
 
-// GET /sessions - List all chats (History)
+// GET /sessions - List all chats (History) with optional filtering
 router.get('/sessions', async (req, res) => {
   try {
-    const sessions = await ChatSession.find().sort({ updatedAt: -1 }).select('title createdAt');
+    const { type, subjectId, topicName } = req.query;
+    const filter: any = {};
+
+    if (type) filter['metadata.type'] = type;
+    if (subjectId) filter['metadata.subjectId'] = subjectId;
+    if (topicName) filter['metadata.topicName'] = topicName;
+
+    const sessions = await ChatSession.find(filter).sort({ updatedAt: -1 }).select('title createdAt messages metadata');
     res.json(sessions);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch sessions' });
@@ -36,9 +43,12 @@ router.get('/sessions/:id', async (req, res) => {
 // POST /sessions - Create new chat
 router.post('/sessions', async (req, res) => {
   try {
+    const { title, metadata } = req.body;
+
     const newSession = new ChatSession({
-        title: 'New Chat',
-        messages: []
+        title: title || 'New Chat',
+        messages: [],
+        metadata: metadata || { type: 'general' }
     });
     await newSession.save();
     res.json(newSession);
