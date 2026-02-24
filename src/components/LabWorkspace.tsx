@@ -279,6 +279,11 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
       {/* Main Area */}
       <div className="flex-1 flex flex-col relative min-w-0">
+          {/* Global Drag Overlay */}
+          {isResizing && (
+              <div className="fixed inset-0 z-50 cursor-col-resize bg-transparent" />
+          )}
+
           {/* Toolbar */}
           <div className="h-14 bg-[#1f2937] border-b border-gray-800 flex items-center justify-between px-6 shadow-sm z-20">
               <div className="flex items-center space-x-4 overflow-hidden">
