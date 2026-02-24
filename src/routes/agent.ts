@@ -40,24 +40,42 @@ async function getSystemPrompt(baseInstruction: string, category: string = 'GATE
     console.error("Failed to fetch settings", e);
   }
 
-  // Default Personas based on Category
-  if (category === 'College Prep') {
-      return `You are a patient and academic College Professor.
-      Your goal is to help students understand concepts deeply for their semester exams.
-      - Explain concepts step-by-step with clear definitions and examples.
-      - Use a supportive and educational tone.
-      - Focus on theory, derivations, and standard textbook explanations.
-
-      ${baseInstruction}`;
-  } else {
-      return `You are a strategic GATE Exam Coach.
-      Your goal is to help students crack the exam with high scores.
-      - Focus on problem-solving, shortcuts, and key formulas.
-      - Be concise, direct, and exam-oriented.
-      - Highlight common pitfalls and "tricks" used in GATE questions.
-
-      ${baseInstruction}`;
+  // 2. Fetch specific personas from Settings or Fallback
+  let persona = '';
+  if (settings) {
+      switch (category) {
+          case 'College Prep':
+              persona = settings.collegePersona || '';
+              break;
+          case 'Lab':
+              persona = settings.labPersona || '';
+              break;
+          case 'GATE Prep':
+          default:
+              persona = settings.gatePersona || '';
+              break;
+      }
   }
+
+  // 3. Fallbacks if settings are empty
+  if (!persona) {
+      if (category === 'College Prep') {
+          persona = `You are a patient and academic College Professor.
+          Your goal is to help students understand concepts deeply for their semester exams.
+          - Explain concepts step-by-step with clear definitions and examples.
+          - Use a supportive and educational tone.`;
+      } else if (category === 'Lab') {
+          persona = `You are an expert Coding Assistant and Lab Instructor.
+          - Provide clear, optimized, and well-commented code.
+          - Explain logic step-by-step.`;
+      } else {
+          persona = `You are a strategic GATE Exam Coach.
+          Your goal is to help students crack the exam with high scores.
+          - Focus on problem-solving, shortcuts, and key formulas.`;
+      }
+  }
+
+  return `${persona}\n\n${baseInstruction}`;
 }
 
 // Helper: Robust JSON Extractor using jsonrepair
@@ -92,32 +110,35 @@ function verifyAnswerWithPython(script: string): string | null {
 // Lab Assistant Endpoint
 router.post('/lab-assist', async (req, res) => {
   try {
-    const { code, action, language = 'c' } = req.body;
+    const { code, action, language = 'c', message } = req.body;
     if (!code || !action) return res.status(400).json({ error: 'Code and action are required' });
 
-    let systemPrompt = "You are an expert coding tutor.";
+    let baseInstruction = "";
     let userPrompt = "";
 
     switch (action) {
       case 'explain':
-        systemPrompt += " Explain the provided code step-by-step for a college student. Focus on logic and flow.";
+        baseInstruction = "Explain the provided code step-by-step for a college student. Focus on logic and flow.";
         userPrompt = `Explain this ${language} code:\n\n${code}`;
         break;
       case 'shorten':
-        systemPrompt += " Refactor the code to be shorter and more efficient without changing functionality. Provide the refactored code and a brief explanation.";
+        baseInstruction = "Refactor the code to be shorter and more efficient without changing functionality. Provide the refactored code and a brief explanation.";
         userPrompt = `Shorten this ${language} code:\n\n${code}`;
         break;
       case 'comment':
-        systemPrompt += " Add detailed educational comments to the code. Explain complex lines.";
+        baseInstruction = "Add detailed educational comments to the code. Explain complex lines.";
         userPrompt = `Add comments to this ${language} code:\n\n${code}`;
         break;
       case 'chat':
-         systemPrompt += " Answer the student's question about the code.";
-         userPrompt = `Code:\n${code}\n\nQuestion: ${req.body.message || "Help me with this."}`;
+         baseInstruction = "Answer the student's question about the code.";
+         userPrompt = `Code:\n${code}\n\nQuestion: ${message || "Help me with this."}`;
          break;
       default:
         return res.status(400).json({ error: 'Invalid action' });
     }
+
+    // Use the dynamic persona for 'Lab' category
+    const systemPrompt = await getSystemPrompt(baseInstruction, 'Lab');
 
     try {
         // Check if streaming is requested

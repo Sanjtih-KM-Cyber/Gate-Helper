@@ -286,20 +286,40 @@ router.post('/:id/parse-experiment-detail', async (req, res) => {
         const data = extractJSON(response.content.toString());
         const code = data.code || "// Code not extracted.";
 
-        // Update DB
-        let updated = false;
-        subject.syllabus.forEach(unit => {
-            unit.topics.forEach(t => {
-                if (t.name === topicName) {
-                    t.code = code;
-                    updated = true;
-                }
-            });
-        });
+        // Update DB with Retry Logic for VersionError
+        let retryCount = 0;
+        const maxRetries = 3;
 
-        if (updated) {
-            subject.markModified('syllabus');
-            await subject.save();
+        while (retryCount < maxRetries) {
+            try {
+                // Re-fetch document to get latest version
+                const currentSubject = await Subject.findById(id);
+                if (!currentSubject) throw new Error("Subject lost");
+
+                let updated = false;
+                currentSubject.syllabus.forEach(unit => {
+                    unit.topics.forEach(t => {
+                        if (t.name === topicName) {
+                            t.code = code;
+                            updated = true;
+                        }
+                    });
+                });
+
+                if (updated) {
+                    currentSubject.markModified('syllabus');
+                    await currentSubject.save();
+                }
+                break; // Success
+            } catch (saveErr: any) {
+                if (saveErr.name === 'VersionError') {
+                    console.warn(`VersionError for ${topicName}, retrying (${retryCount + 1}/${maxRetries})...`);
+                    retryCount++;
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Small jitter
+                } else {
+                    throw saveErr;
+                }
+            }
         }
 
         res.json({ code });
