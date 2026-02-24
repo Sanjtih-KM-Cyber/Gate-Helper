@@ -115,7 +115,7 @@ export const GlobalTaskManagerProvider = ({ children }: { children: ReactNode })
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value);
+            const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n\n');
 
             for (const line of lines) {
@@ -128,7 +128,9 @@ export const GlobalTaskManagerProvider = ({ children }: { children: ReactNode })
                             fullText += data.chunk;
                             updateTask(id, { streamContent: fullText });
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error("Error parsing JSON chunk", e);
+                    }
                 }
             }
         }
