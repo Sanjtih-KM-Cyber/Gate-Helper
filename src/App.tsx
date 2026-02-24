@@ -5,6 +5,7 @@ import SubjectExplorer from './components/SubjectExplorer';
 import SubjectDetail from './components/SubjectDetail';
 import TopicStudio from './components/TopicStudio';
 import SettingsPage from './components/Settings';
+import CyberHub from './components/CyberHub';
 import { GlobalTaskProvider, useGlobalTask, GlobalTaskManagerProvider, useGlobalTaskManager } from './context/GlobalTaskManager';
 
 function Navbar() {
@@ -59,6 +60,7 @@ function App() {
               <Route path="/subject/:id" element={<SubjectDetail />} />
               <Route path="/subject/:subjectId/topic/:topic" element={<TopicStudio />} />
 
+              <Route path="/hub" element={<CyberHub />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>

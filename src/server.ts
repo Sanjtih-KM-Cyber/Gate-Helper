@@ -19,6 +19,7 @@ import mistakeRoutes from './routes/mistakes.ts';
 import rubricRoutes from './routes/rubrics.ts';
 import plannerRoutes from './routes/planner.ts';
 import vaultRoutes from './routes/vault.ts';
+import chatRoutes from './routes/chat.ts';
 
 async function startServer() {
   const app = express();
@@ -51,6 +52,7 @@ async function startServer() {
   app.use('/api/rubrics', rubricRoutes);
   app.use('/api/planner', plannerRoutes);
   app.use('/api/vault', vaultRoutes);
+  app.use('/api/chat', chatRoutes);
   app.use('/api', statsRoutes); // /api/stats
 
   // Health Check

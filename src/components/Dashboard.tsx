@@ -109,6 +109,32 @@ export default function Dashboard() {
                 <Upload size={20}/>
             </button>
         </div>
+
+        {/* Cyber Hub Banner (New) */}
+        <Link
+          to="/hub"
+          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 hover:border-purple-500/50 transition-all duration-300 shadow-2xl hover:shadow-purple-900/20 p-8 flex flex-col items-start justify-between min-h-[250px] md:col-span-2 lg:col-span-1"
+        >
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity transform group-hover:scale-110 duration-500">
+            <GraduationCap size={150} />
+          </div>
+
+          <div className="z-10">
+            <div className="bg-purple-500/20 p-3 rounded-lg w-fit mb-6 text-purple-400 group-hover:text-white group-hover:bg-purple-600 transition-colors">
+              <Loader2 size={32} />
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2 group-hover:translate-x-1 transition-transform">
+              Cyber Hub
+            </h2>
+            <p className="text-gray-400 max-w-sm group-hover:text-gray-300 transition-colors">
+              Your centralized AI Assistant. Upload PDFs, generate mind maps, and manage multiple chat sessions.
+            </p>
+          </div>
+
+          <div className="mt-8 flex items-center text-purple-400 font-medium group-hover:text-white transition-colors">
+            Enter Hub <ArrowRight className="ml-2 group-hover:translate-x-2 transition-transform" size={20} />
+          </div>
+        </Link>
       </div>
 
       {/* Upload Modal */}
