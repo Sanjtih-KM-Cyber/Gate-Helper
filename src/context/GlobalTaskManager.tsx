@@ -34,8 +34,6 @@ export const useGlobalTaskManager = () => {
 };
 
 // --- Legacy Context (Keep for now to avoid breaking existing code immediately) ---
-// This was likely the old 'GlobalTaskContext' for question generation.
-// We will merge functionality or keep them side-by-side for this refactor.
 interface LegacyContextType {
     generatedQuestions: any;
     isGenerating: boolean;
@@ -68,12 +66,98 @@ export const GlobalTaskProvider = ({ children }: { children: ReactNode }) => {
 export const GlobalTaskManagerProvider = ({ children }: { children: ReactNode }) => {
   const [tasks, setTasks] = useState<Record<string, Task>>({});
 
-  const updateTask = (id: string, updates: Partial<Task>) => {
+  const updateTask = useCallback((id: string, updates: Partial<Task>) => {
     setTasks(prev => ({
       ...prev,
       [id]: { ...prev[id], ...updates }
     }));
-  };
+  }, []);
+
+  const executeTask = useCallback(async (id: string, type: Task['type'], payload: any) => {
+    updateTask(id, { status: 'running' });
+
+    try {
+      if (type === 'ai-chat') {
+        try {
+            const response = await fetch('http://localhost:5000/api/agent/lab-assist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, stream: true })
+            });
+
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let fullText = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process lines separated by double newline (SSE standard)
+                const lines = buffer.split('\n\n');
+                // Keep the last partial line in buffer
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine.startsWith("data: ")) continue;
+
+                    const data = trimmedLine.slice(6);
+                    if (data === "[DONE]") {
+                        updateTask(id, { status: 'completed', result: fullText });
+                        return;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.chunk) {
+                            fullText += parsed.chunk;
+                            // Update UI with stream content
+                            updateTask(id, { streamContent: fullText });
+                        }
+                    } catch (e) {
+                        console.warn("Stream JSON parse error:", e);
+                    }
+                }
+            }
+
+            // Flush remaining buffer if any
+            if (buffer.trim().startsWith("data: ")) {
+                 const data = buffer.trim().slice(6);
+                 if (data !== "[DONE]") {
+                     try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.chunk) fullText += parsed.chunk;
+                     } catch (e) { console.warn("Final chunk parse error", e); }
+                 }
+            }
+
+            updateTask(id, { status: 'completed', result: fullText });
+
+        } catch (err: any) {
+            console.error("Streaming failed, falling back to blocking request", err);
+            // Fallback
+            const response = await axios.post('http://localhost:5000/api/agent/lab-assist', { ...payload, stream: false });
+            updateTask(id, { status: 'completed', result: response.data.result });
+        }
+
+      } else if (type === 'parse-code') {
+        const response = await axios.post(`http://localhost:5000/api/subjects/${payload.subjectId}/parse-experiment-detail`, {
+            topicName: payload.topicName
+        });
+        updateTask(id, { status: 'completed', result: response.data.code });
+      }
+      // Add other task types here
+    } catch (error: any) {
+      console.error(`Task ${id} failed:`, error);
+      updateTask(id, { status: 'failed', error: error.message || 'Task failed' });
+    }
+  }, [updateTask]);
 
   const startTask = useCallback((type: Task['type'], payload: any) => {
     const id = crypto.randomUUID();
@@ -92,68 +176,11 @@ export const GlobalTaskManagerProvider = ({ children }: { children: ReactNode })
     executeTask(id, type, payload);
 
     return id;
-  }, []);
-
-  const executeTask = async (id: string, type: Task['type'], payload: any) => {
-    updateTask(id, { status: 'running' });
-
-    try {
-      if (type === 'ai-chat') {
-        // Stream AI Chat
-        const response = await fetch('http://localhost:5000/api/agent/lab-assist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...payload, stream: true })
-        });
-
-        if (!response.body) throw new Error("No stream body");
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n\n');
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const dataStr = line.replace('data: ', '').trim();
-                    if (dataStr === '[DONE]') break;
-                    try {
-                        const data = JSON.parse(dataStr);
-                        if (data.chunk) {
-                            fullText += data.chunk;
-                            updateTask(id, { streamContent: fullText });
-                        }
-                    } catch (e) {
-                        console.error("Error parsing JSON chunk", e);
-                    }
-                }
-            }
-        }
-        updateTask(id, { status: 'completed', result: fullText });
-
-      } else if (type === 'parse-code') {
-        // Lazy Parse Experiment Code
-        const response = await axios.post(`http://localhost:5000/api/subjects/${payload.subjectId}/parse-experiment-detail`, {
-            topicName: payload.topicName
-        });
-        updateTask(id, { status: 'completed', result: response.data.code });
-      }
-      // Add other task types here
-    } catch (error: any) {
-      console.error(`Task ${id} failed:`, error);
-      updateTask(id, { status: 'failed', error: error.message || 'Task failed' });
-    }
-  };
+  }, [executeTask]);
 
   const getTask = (id: string) => tasks[id];
 
   const cancelTask = (id: string) => {
-    // For now, just mark as failed. Real cancellation requires AbortController support.
     updateTask(id, { status: 'failed', error: 'Cancelled by user' });
   };
 

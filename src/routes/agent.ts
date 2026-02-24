@@ -30,8 +30,9 @@ const codeLlm = new ChatOllama({
 const searchTool = new DuckDuckGoSearch({ maxResults: 3 });
 
 async function getSystemPrompt(baseInstruction: string, category: string = 'GATE Prep') {
+  let settings = null;
   try {
-    const settings = await Settings.findOne();
+    settings = await Settings.findOne();
     // If settings exist and custom persona is set, use it (could be enhanced to support dual personas later)
     if (settings && settings.aiPersona) {
       return `${settings.aiPersona}\n\n${baseInstruction}`;

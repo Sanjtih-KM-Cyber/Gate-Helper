@@ -120,7 +120,7 @@ export default function CyberHub() {
       if (e.target.files && e.target.files.length > 0) {
           setUploading(true);
           const formData = new FormData();
-          Array.from(e.target.files).forEach(file => {
+          Array.from(e.target.files).forEach((file: any) => {
               formData.append('files', file);
           });
 

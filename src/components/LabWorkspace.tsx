@@ -192,31 +192,50 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
       // We don't await here anymore, the useEffect below handles the stream
   };
 
-  // Watch for AI Stream Tasks
+  // Watch for AI Tasks (Streaming or Completed)
   useEffect(() => {
       Object.values(tasks).forEach((task: any) => {
+          // Handle Completed Tasks (Non-streaming fallback or Final Stream state)
+          if (task.type === 'ai-chat' && task.status === 'completed' && task.result) {
+               setAllChats(prev => {
+                  const currentExpChats = prev[activeExperiment!] || [];
+                  const lastMsg = currentExpChats[currentExpChats.length - 1];
+
+                  // Avoid duplicating if already updated via stream
+                  if (lastMsg && lastMsg.role === 'ai' && lastMsg.content === task.result) return prev;
+
+                  // If the last message was the user's prompt, append the result
+                  if (!lastMsg || lastMsg.role === 'user') {
+                      return { ...prev, [activeExperiment!]: [...currentExpChats, { role: 'ai', content: task.result }] };
+                  }
+
+                  // If we were streaming, update the final message content
+                  if (lastMsg.role === 'ai') {
+                      const newChats = [...currentExpChats];
+                      newChats[newChats.length - 1] = { role: 'ai', content: task.result };
+                      return { ...prev, [activeExperiment!]: newChats };
+                  }
+
+                  return prev;
+               });
+               setLoadingAi(false);
+          }
+
+          // Handle Streaming Updates
           if (task.type === 'ai-chat' && task.status === 'running' && task.streamContent) {
-              // Find the last AI message in current chat or append a new one
               setAllChats(prev => {
                   const currentExpChats = prev[activeExperiment!] || [];
                   const lastMsg = currentExpChats[currentExpChats.length - 1];
 
                   if (lastMsg && lastMsg.role === 'ai' && lastMsg.content !== task.streamContent) {
-                      // Update existing streaming message
                       const newChats = [...currentExpChats];
                       newChats[newChats.length - 1] = { role: 'ai', content: task.streamContent };
                       return { ...prev, [activeExperiment!]: newChats };
                   } else if (!lastMsg || lastMsg.role === 'user') {
-                      // Append new streaming message
                       return { ...prev, [activeExperiment!]: [...currentExpChats, { role: 'ai', content: task.streamContent }] };
                   }
                   return prev;
               });
-          }
-
-          if (task.type === 'ai-chat' && task.status === 'completed' && task.result) {
-               setLoadingAi(false);
-               // Final update ensured by stream content logic usually, but good to ensure completion state
           }
       });
   }, [tasks, activeExperiment]);
