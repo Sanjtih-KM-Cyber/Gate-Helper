@@ -153,7 +153,9 @@ router.post('/lab-assist', async (req, res) => {
             ]);
 
             for await (const chunk of stream) {
-                res.write(`data: ${JSON.stringify({ chunk: chunk.content })}\n\n`);
+                if (chunk.content) {
+                    res.write(`data: ${JSON.stringify({ chunk: chunk.content })}\n\n`);
+                }
             }
             res.write('data: [DONE]\n\n');
             res.end();
