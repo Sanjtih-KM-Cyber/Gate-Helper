@@ -186,7 +186,8 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
           code,
           action,
           language: 'c',
-          message: message
+          message: message,
+          experimentId: activeExperiment // Identify which experiment this task belongs to
       });
 
       // We don't await here anymore, the useEffect below handles the stream
@@ -195,10 +196,15 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
   // Watch for AI Tasks (Streaming or Completed)
   useEffect(() => {
       Object.values(tasks).forEach((task: any) => {
+          if (task.type !== 'ai-chat') return;
+
+          const targetExperiment = task.payload.experimentId;
+          if (!targetExperiment) return;
+
           // Handle Completed Tasks (Non-streaming fallback or Final Stream state)
-          if (task.type === 'ai-chat' && task.status === 'completed' && task.result) {
+          if (task.status === 'completed' && task.result) {
                setAllChats(prev => {
-                  const currentExpChats = prev[activeExperiment!] || [];
+                  const currentExpChats = prev[targetExperiment] || [];
                   const lastMsg = currentExpChats[currentExpChats.length - 1];
 
                   // Avoid duplicating if already updated via stream
@@ -206,33 +212,35 @@ export default function LabWorkspace({ subject }: { subject: Subject }) {
 
                   // If the last message was the user's prompt, append the result
                   if (!lastMsg || lastMsg.role === 'user') {
-                      return { ...prev, [activeExperiment!]: [...currentExpChats, { role: 'ai', content: task.result }] };
+                      return { ...prev, [targetExperiment]: [...currentExpChats, { role: 'ai', content: task.result }] };
                   }
 
                   // If we were streaming, update the final message content
                   if (lastMsg.role === 'ai') {
                       const newChats = [...currentExpChats];
                       newChats[newChats.length - 1] = { role: 'ai', content: task.result };
-                      return { ...prev, [activeExperiment!]: newChats };
+                      return { ...prev, [targetExperiment]: newChats };
                   }
 
                   return prev;
                });
-               setLoadingAi(false);
+
+               // Only stop loading if this is the active experiment
+               if (targetExperiment === activeExperiment) setLoadingAi(false);
           }
 
           // Handle Streaming Updates
-          if (task.type === 'ai-chat' && task.status === 'running' && task.streamContent) {
+          if (task.status === 'running' && task.streamContent) {
               setAllChats(prev => {
-                  const currentExpChats = prev[activeExperiment!] || [];
+                  const currentExpChats = prev[targetExperiment] || [];
                   const lastMsg = currentExpChats[currentExpChats.length - 1];
 
                   if (lastMsg && lastMsg.role === 'ai' && lastMsg.content !== task.streamContent) {
                       const newChats = [...currentExpChats];
                       newChats[newChats.length - 1] = { role: 'ai', content: task.streamContent };
-                      return { ...prev, [activeExperiment!]: newChats };
+                      return { ...prev, [targetExperiment]: newChats };
                   } else if (!lastMsg || lastMsg.role === 'user') {
-                      return { ...prev, [activeExperiment!]: [...currentExpChats, { role: 'ai', content: task.streamContent }] };
+                      return { ...prev, [targetExperiment]: [...currentExpChats, { role: 'ai', content: task.streamContent }] };
                   }
                   return prev;
               });
